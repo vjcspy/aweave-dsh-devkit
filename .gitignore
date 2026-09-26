@@ -1,3 +1,6 @@
 node_modules/
-lib/
+# Anchored: an unanchored `lib/` matches at EVERY depth and silently swallowed
+# `src/client/lib/` — the ported board logic — from a commit. The build output
+# is only ever the repo-root `lib/`.
+/lib/
 *.tsbuildinfo
