@@ -198,9 +198,12 @@ test/
 
 ## Known limitations
 
-* **Opening a task needs the Aweave root.** A Session that is neither rooted inside the platform nor paired
-  with a configured `aweaveRoot` cannot resolve an absolute task path, and the board says so rather than opening
-  a wrong file.
+* **Opening a task needs the Aweave root.** `aweaveRoot` is derived by walking up from the **Host process's working
+  directory** (`src/host/aweave-root.ts`), so a Host launched from outside the platform tree resolves nothing and the
+  board refuses to open any task — for every Session, including one correctly rooted at the platform. A Session rooted
+  outside the platform is the second refusal case, and it applies even when the root resolved. The board names which
+  condition applies rather than opening a wrong file; set `aweaveRoot` in a profile patch layer when the Host is
+  launched from elsewhere.
 * **Rank gaps are not rebalanced.** The rank scheme is a fractional key with no server-side renumbering. After
   enough insertions between the same two neighbours the gap collapses, and the board then reports the exhausted
   slot as its own condition instead of writing a rank that collides. A sparse renumber of the destination column
