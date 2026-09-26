@@ -1,0 +1,82 @@
+{
+  "name": "aweave-dsh-devkit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DSH Web plugin that opens the Aweave Task Board in the right sidebar and reaches its backend through the host's admission-fenced /api channel.",
+  "license": "MIT",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "types": "./lib/client/index.d.ts",
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "src"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "cordis",
+    "web",
+    "taskboard",
+    "kanban",
+    "aweave"
+  ],
+  "scripts": {
+    "build": "pnpm run build:host && pnpm run build:client",
+    "build:host": "tsc -p tsconfig.json",
+    "build:client": "tsc -p tsconfig.client.json && tsdown --config tsdown.config.ts",
+    "check": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.client.json && tsc --noEmit -p tsconfig.test.json",
+    "test": "pnpm run build && vitest run",
+    "test:unit": "vitest run test/unit",
+    "test:client": "vitest run test/client"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": ">=4.0.2",
+    "@deepseek-ai/dsh-client-connection": ">=0.1.7-rc.2",
+    "@deepseek-ai/dsh-host-webserver": ">=0.1.5-rc.1",
+    "@deepseek-ai/schemastery": ">=3.18.2"
+  },
+  "devDependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
+    "@deepseek-ai/cordis": "link:../deepseek-harness/vendor/cordis",
+    "@deepseek-ai/dsh-client-connection": "link:../deepseek-harness/packages/client/connection",
+    "@deepseek-ai/dsh-client-locale": "link:../deepseek-harness/packages/client/locale",
+    "@deepseek-ai/dsh-client-ui-renderer": "link:../deepseek-harness/packages/client/ui-renderer",
+    "@deepseek-ai/dsh-client-ui-session": "link:../deepseek-harness/packages/client/ui-session",
+    "@deepseek-ai/dsh-client-ui-sidebar-right": "link:../deepseek-harness/packages/client/ui-sidebar-right",
+    "@deepseek-ai/dsh-client-ui-slots": "link:../deepseek-harness/packages/client/ui-slots",
+    "@deepseek-ai/dsh-host-webserver": "link:../deepseek-harness/packages/host/webserver",
+    "@deepseek-ai/dsh-util-workspace-path": "link:../deepseek-harness/packages/util/workspace-path",
+    "@deepseek-ai/schemastery": "link:../deepseek-harness/vendor/schemastery",
+    "@types/node": "^22.20.0",
+    "@types/react": "~18.3.1",
+    "react": "^18.2.0",
+    "tsdown": "link:../deepseek-harness/node_modules/tsdown",
+    "typescript": "^5.9.0",
+    "vitest": "^4.1.8"
+  }
+}

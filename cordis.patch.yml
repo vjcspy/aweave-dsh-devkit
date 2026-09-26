@@ -1,0 +1,30 @@
+# Bundle patch for aweave-dsh-devkit.
+#
+# The DSH profile applies every installed bundle's patch on top of the profile
+# tree, so this file is the whole installation contract: one `insert` row keyed by
+# the package id.
+#
+# Layer order for reference: bundle patches -> profiles/<profile>/cordis.patch.yml
+# -> ~/.dsh/cordis.patch.yml -> --patch overlay. A profile-level row with the same
+# id overrides this one, and ~/.dsh/cordis.patch.yml can disable the plugin with
+# `disabled: true` instead of uninstalling the package.
+#
+# `aweaveRoot` is deliberately absent here and ships NO absolute path: every
+# tracked file must stay machine-independent, and the Host derives the root from
+# the platform marker when the value is empty. A deployment whose Session is not
+# rooted inside the platform sets it in its own profile patch, which is where a
+# machine-specific path belongs:
+#
+#   - insert:
+#       - id: aweave-dsh-devkit
+#         name: 'aweave-dsh-devkit'
+#         config:
+#           baseUrl: 'http://127.0.0.1:3456'
+#           requestTimeoutMs: 8000
+#           aweaveRoot: /absolute/path/to/the/aweave/platform
+- insert:
+    - id: aweave-dsh-devkit
+      name: 'aweave-dsh-devkit'
+      config:
+        baseUrl: 'http://127.0.0.1:3456'
+        requestTimeoutMs: 8000
