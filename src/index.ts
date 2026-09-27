@@ -1,17 +1,21 @@
 /**
- * Host half: reach the Aweave taskboard backend through the admission-fenced
- * `/api` channel, and publish the resolved configuration to the served page.
+ * Host half: reach the Aweave mission backend (`@hod/aweave-mission-server`)
+ * through the admission-fenced `/api` channel, and publish the resolved
+ * configuration to the served page.
  *
  * Two jobs, one lifecycle. The routes are registered on `ctx.connection.fetch`,
  * so the channel's admission — `403` for a foreign `Host`, `401` without the
  * browser cookie — runs before any route lookup. That is the fence; the
  * bind-host check is defence in depth only, and the configuration global is what
- * lets the browser half build an ABSOLUTE task path from an Aweave-root-relative
- * id.
+ * lets the browser half build an ABSOLUTE mission `INDEX.md` path from an
+ * Aweave-root-relative id.
  *
  * The backend is not ported and not duplicated: this half is transport, and the
- * Aweave NestJS backend stays the single owner of scope discovery, task parsing,
- * and the front-matter write path.
+ * Aweave NestJS backend stays the single owner of mission discovery, markdown
+ * parsing, and the front-matter write path. The mission board's UI is not
+ * ported either — it is `@hod/aweave-mission-web`'s `embed.js`, loaded at
+ * runtime by the browser half through the `embed.js` script route this module
+ * registers alongside the JSON ones.
  */
 import { existsSync } from 'node:fs'
 import type { Context } from '@deepseek-ai/cordis'
@@ -21,7 +25,7 @@ import type {} from '@deepseek-ai/dsh-client-connection'
 // Type-only: declares the `webServer` member this module reads.
 import type {} from '@deepseek-ai/dsh-host-webserver'
 
-import { CONFIG_GLOBAL, FENCED_OPERATIONS, type InjectedConfig } from './config.ts'
+import { CONFIG_GLOBAL, EMBED_SCRIPT_PATH, FENCED_OPERATIONS, type InjectedConfig } from './config.ts'
 import { resolveAweaveRoot } from './host/aweave-root.ts'
 import { loopbackDefenceWarning, normalizeBaseUrl } from './host/forward.ts'
 import { registerForwardRoutes } from './host/routes.ts'
@@ -53,11 +57,11 @@ export function apply(ctx: Context, config: Config): void {
   const root = resolveAweaveRoot(config.aweaveRoot, { cwd: process.cwd(), markerExists: existsSync })
   if (root.source === 'unresolved') {
     // Warning, not a refusal: every board operation still works, and only
-    // opening a task needs the root. The browser half degrades readably instead
-    // of opening the wrong file.
+    // opening a mission's INDEX.md needs the root. The browser half degrades
+    // readably instead of opening the wrong file.
     ctx.logger.warn(
       `aweave-dsh-devkit: no Aweave platform root — ${root.reason}. `
-      + 'Task ids are Aweave-root-relative, so opening a task needs the root; set Config.aweaveRoot to the platform root '
+      + 'Mission ids are Aweave-root-relative, so opening one needs the root; set Config.aweaveRoot to the platform root '
       + 'in the profile patch, or root the Session inside the platform.',
     )
   }
@@ -69,6 +73,7 @@ export function apply(ctx: Context, config: Config): void {
     requestTimeoutMs: config.requestTimeoutMs,
     aweaveRoot: root.source === 'unresolved' ? null : root.root,
     operations: FENCED_OPERATIONS,
+    embedScriptPath: EMBED_SCRIPT_PATH,
   }
   ctx.on('webserver/index-inject', (table) => {
     table.push({ kind: 'global', name: CONFIG_GLOBAL, value: injected })

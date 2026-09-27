@@ -1,5 +1,5 @@
 /**
- * Dynamic Web Client bundle for the Aweave Task Board plugin.
+ * Dynamic Web Client bundle for the Aweave Mission Board plugin.
  *
  * The DSH Client loads plugin bundles through the shell-owned module loader, so
  * the artifact must hand its factory to `window.__ModuleLoader__.load` instead of

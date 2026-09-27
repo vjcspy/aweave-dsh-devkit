@@ -2,7 +2,7 @@
   "name": "aweave-dsh-devkit",
   "version": "0.1.0",
   "private": true,
-  "description": "DSH Web plugin that opens the Aweave Task Board in the right sidebar and reaches its backend through the host's admission-fenced /api channel.",
+  "description": "DSH Web plugin that opens the Aweave Mission Board in the right sidebar, loading @hod/aweave-mission-web's embed.js and reaching its backend through the host's admission-fenced /api channel.",
   "license": "MIT",
   "type": "module",
   "main": "lib/index.js",
@@ -31,8 +31,7 @@
     "dsh-plugin",
     "cordis",
     "web",
-    "taskboard",
-    "kanban",
+    "mission-board",
     "aweave"
   ],
   "scripts": {
@@ -59,9 +58,6 @@
     "@deepseek-ai/schemastery": ">=3.18.2"
   },
   "devDependencies": {
-    "@dnd-kit/core": "^6.3.1",
-    "@dnd-kit/sortable": "^10.0.0",
-    "@dnd-kit/utilities": "^3.2.2",
     "@deepseek-ai/cordis": "link:../deepseek-harness/vendor/cordis",
     "@deepseek-ai/dsh-client-connection": "link:../deepseek-harness/packages/client/connection",
     "@deepseek-ai/dsh-client-locale": "link:../deepseek-harness/packages/client/locale",

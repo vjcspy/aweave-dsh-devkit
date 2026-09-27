@@ -1,6 +1,6 @@
 /**
- * The fenced route's policy: path allowlist, upstream URL and method mapping,
- * the upstream call, and the status mapping a caller sees.
+ * The fenced JSON route's policy: path allowlist, upstream URL and method
+ * mapping, the upstream call, and the status mapping a caller sees.
  *
  * Everything here is pure, or takes the upstream call as a parameter, so the
  * whole policy is testable without a network: {@link planForward} decides from
@@ -9,12 +9,16 @@
  * Three mappings are explicit rather than inherited from the channel:
  * - an unreachable backend is `502` with a machine-readable body, never a `200`
  *   carrying nothing, because a Human reading an empty board would take it for
- *   "no tasks";
+ *   "no missions";
  * - a method the fenced path does not implement is `405` with `Allow`, not the
  *   channel's `404`, because the path exists and only the verb is wrong;
  * - every upstream status and body is passed through verbatim, so the backend's
- *   own error codes (`INVALID_INPUT`, `FORBIDDEN`, `NOT_FOUND`,
- *   `ACTION_NOT_ALLOWED`) reach the caller unaltered.
+ *   own error codes (`INVALID_INPUT`, `FORBIDDEN`, `NOT_FOUND`, `CONFLICT`,
+ *   `LOCKED`) reach the caller unaltered.
+ *
+ * `EMBED_SCRIPT_PATH` (the `embed.js` script route) does NOT go through this
+ * policy — see `host/embed-route.ts`'s module comment for why a `<script src>`
+ * load needs a different envelope.
  */
 import {
   FENCED_PATHS,
@@ -23,9 +27,6 @@ import {
   type FencedPath,
   type UpstreamMethod,
 } from '../config.ts'
-
-/** Upstream path of the task collection, whose `:id` segment is appended per request. */
-const TASKS_PATH = '/taskboard/tasks'
 
 /** The request facts this policy reads. */
 export interface ForwardRequest {
@@ -93,16 +94,6 @@ export interface ForwardOptions {
   readonly fetch: UpstreamFetch
 }
 
-/** The upstream request one fenced request becomes. */
-interface UpstreamRequest {
-  /** Upstream pathname, already carrying any derived id. */
-  readonly path: string
-  /** Body to send; `undefined` when the method carries none. */
-  readonly body: string | undefined
-  /** Media type to send. */
-  readonly contentType: string | undefined
-}
-
 /**
  * Resolve the fenced path that owns a pathname.
  * @param pathname - request pathname.
@@ -152,74 +143,12 @@ export function loopbackDefenceWarning(host: string): string | undefined {
 }
 
 /**
- * Read the task id an update request names.
- *
- * The id is an Aweave-root-relative markdown path, so it arrives in the body: the
- * channel takes exact paths and cannot carry a value containing `/` as a segment.
- * @param rawBody - request body text.
- * @returns the id, or `undefined` when the body is not a JSON object with a non-empty string `id`.
- */
-export function taskIdFromBody(rawBody: string | undefined): string | undefined {
-  const parsed = parseJsonObject(rawBody)
-  if (parsed === undefined) return undefined
-  const id = parsed.id
-  return typeof id === 'string' && id !== '' ? id : undefined
-}
-
-/**
- * Parse a request body into a JSON object.
- * @param rawBody - request body text.
- * @returns the parsed object, or `undefined` when the text is absent, unparseable, or not an object.
- */
-function parseJsonObject(rawBody: string | undefined): Record<string, unknown> | undefined {
-  if (rawBody === undefined || rawBody === '') return undefined
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(rawBody)
-  } catch {
-    // Swallows the parse error: a non-JSON body is exactly the undefined case.
-    return undefined
-  }
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return undefined
-  return parsed as Record<string, unknown>
-}
-
-/**
- * Build the upstream request for one operation.
- *
- * The update route is the one operation whose forwarded body differs from the
- * received one. `id` selects the upstream path and is not part of the backend's
- * update payload: that route's validation pipe runs `whitelist: true` with
- * `forbidNonWhitelisted: true`, so forwarding `id` upstream would make every
- * update fail with `INVALID_INPUT`. Every other operation forwards its body
- * byte-for-byte.
- * @param operation - operation being forwarded.
- * @param rawBody - request body text.
- * @param contentType - media type the caller sent.
- * @returns the upstream request, or `undefined` when the route needs an id the body does not carry.
- */
-function upstreamRequestFor(
-  operation: FencedOperation,
-  rawBody: string | undefined,
-  contentType: string | undefined,
-): UpstreamRequest | undefined {
-  if (operation.upstreamPath !== undefined) {
-    return { path: operation.upstreamPath, body: rawBody, contentType }
-  }
-  const id = taskIdFromBody(rawBody)
-  const parsed = parseJsonObject(rawBody)
-  if (id === undefined || parsed === undefined) return undefined
-  const payload: Record<string, unknown> = { ...parsed }
-  delete payload.id
-  return {
-    path: `${TASKS_PATH}/${encodeURIComponent(id)}`,
-    body: JSON.stringify(payload),
-    contentType: 'application/json; charset=utf-8',
-  }
-}
-
-/**
  * Decide what one request does: which backend operation it reaches, or why it is refused.
+ *
+ * Every mission operation forwards to a FIXED `upstreamPath` (`config.ts`'s
+ * `FencedOperation.upstreamPath: string`) — unlike the deleted taskboard
+ * update route, no request ever needs an id derived from its body, so this
+ * policy never rejects a well-formed request with `400`.
  * @param request - the request facts the policy reads.
  * @param rawBody - request body text, or `undefined` when the carrier supplied none.
  * @param baseUrl - configured backend origin.
@@ -255,32 +184,16 @@ export function planForward(
       },
     }
   }
-  const upstream = upstreamRequestFor(operation, rawBody, request.contentType)
-  if (upstream === undefined) {
-    return {
-      ok: false,
-      refusal: {
-        status: 400,
-        payload: {
-          success: false,
-          error: {
-            code: 'INVALID_INPUT',
-            message: `${entry.path} needs a JSON body with a non-empty string "id" naming the task`,
-          },
-        },
-      },
-    }
-  }
   const bodyless = request.method === 'GET' || request.method === 'HEAD'
   return {
     ok: true,
     plan: {
       path: entry,
       operation,
-      upstreamUrl: `${normalizeBaseUrl(baseUrl)}${upstream.path}${url.search}`,
+      upstreamUrl: `${normalizeBaseUrl(baseUrl)}${operation.upstreamPath}${url.search}`,
       upstreamMethod: operation.upstreamMethod,
-      body: bodyless ? undefined : upstream.body,
-      contentType: upstream.contentType,
+      body: bodyless ? undefined : rawBody,
+      contentType: request.contentType,
     },
   }
 }
@@ -329,7 +242,7 @@ export async function forwardToBackend(plan: ForwardPlan, options: ForwardOption
       success: false,
       error: {
         code: 'UPSTREAM_UNREACHABLE',
-        message: `the Aweave taskboard backend did not answer ${plan.upstreamMethod} ${plan.upstreamUrl}: ${describe(error)}`,
+        message: `the Aweave mission backend did not answer ${plan.upstreamMethod} ${plan.upstreamUrl}: ${describe(error)}`,
       },
     })
   }
@@ -337,10 +250,14 @@ export async function forwardToBackend(plan: ForwardPlan, options: ForwardOption
 
 /**
  * Describe a thrown value without assuming it is an `Error`.
+ *
+ * Exported for `host/embed-route.ts`'s own upstream-failure mapping, so the
+ * script route's plain-text `502` names the same failure shape this module's
+ * JSON one does.
  * @param error - the caught value.
  * @returns the value's name and message, or its string form.
  */
-function describe(error: unknown): string {
+export function describe(error: unknown): string {
   if (error instanceof Error) return `${error.name}: ${error.message}`
   return String(error)
 }

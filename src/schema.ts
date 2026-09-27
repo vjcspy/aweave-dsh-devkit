@@ -19,7 +19,7 @@ import {
 
 /** Host configuration for the plugin, as the Loader resolves it. */
 export interface Config {
-  /** Aweave taskboard backend origin, without a trailing slash. */
+  /** Aweave mission-board backend origin, without a trailing slash. */
   baseUrl: string
   /** Upstream deadline per forwarded request, in milliseconds. */
   requestTimeoutMs: number

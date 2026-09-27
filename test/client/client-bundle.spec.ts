@@ -4,15 +4,19 @@
  * `lib/client.js` must exist, hand its factory to the shell's module loader with
  * the package id, export only what cordis loading needs, request nothing outside
  * the shell's baseline module table, and — when that `apply` runs — register the
- * Task Board tab kind and a body whose injected face carries the Host-published
- * configuration and a data surface bound to it.
+ * Mission Board tab kind and a body whose injected face carries only the
+ * Host-published configuration.
  *
- * Two of the assertions below exist because of how the board's own libraries are
- * shipped. `@dnd-kit/*` and the browser-safe workspace-path helpers are
- * `devDependencies` that must be INLINED: the shell seeds neither into its module
- * table, so a `require` for either would fail at page load. The spec therefore
- * checks the requested specifiers AND the bundle source, because a bundle that
- * merely happens not to be exercised would pass a call-site-only check.
+ * This plugin no longer bundles a board implementation, its request/response
+ * logic, or a drag-and-drop library: `embed.js` (`@hod/aweave-mission-web`'s
+ * self-contained bundle) is loaded at RUNTIME from the fenced script route, not
+ * bundled here. The one dependency that must still be INLINED (the shell seeds
+ * neither) is the browser-safe workspace-path helper `open-task.ts` uses; the
+ * request/response envelope rules that used to live in the deleted `lib/api.ts`
+ * now live in `src/client/lib/mission-transport.ts` and have their OWN,
+ * bundle-independent coverage (`test/unit/mission-transport.spec.ts`) — this
+ * spec therefore checks bundle identity and registration wiring only, not
+ * per-call network behaviour.
  *
  * The spec reads the BUILT bundle, so `build:client` must have run first; the
  * package's `test` script builds it before invoking vitest.
@@ -34,7 +38,7 @@ import {
   TAB_KIND,
   type InjectedConfig,
 } from '../../src/config.ts'
-import type { TaskBoardInjected } from '../../src/client/TaskBoardBody.tsx'
+import type { MissionBoardInjected } from '../../src/client/MissionBoardBody.tsx'
 
 const BUNDLE_PATH = 'lib/client.js'
 const HOST_ENTRY_PATH = 'lib/index.js'
@@ -60,12 +64,11 @@ const BASELINE_SPECIFIERS = new Set([
  * Specifiers that must be INLINED rather than requested.
  *
  * The shell seeds none of them, so a module-table request for one would be a
- * load-time failure rather than a degraded board.
+ * load-time failure rather than a degraded board. `@dnd-kit/*` is gone with
+ * the deleted Task Board — the board itself is `embed.js`'s own Shadow DOM
+ * bundle now, loaded at runtime, not built into this bundle at all.
  */
 const MUST_BE_INLINED = [
-  '@dnd-kit/core',
-  '@dnd-kit/sortable',
-  '@dnd-kit/utilities',
   '@deepseek-ai/dsh-util-workspace-path',
 ]
 
@@ -80,7 +83,7 @@ interface RegisteredTabKind {
 
 /** One slot entry as the seat receives it. */
 interface RegisteredEntry {
-  options: { name: string; key?: string; locale?: string; inject?: () => TaskBoardInjected }
+  options: { name: string; key?: string; locale?: string; inject?: () => MissionBoardInjected }
   component: unknown
 }
 
@@ -173,7 +176,7 @@ function createContext(): ApplyHarness {
     run: () => bodies.map(body => body() ?? (() => {})),
     ctx: undefined as unknown as Context,
   }
-  const words: Record<string, string> = { 'tab.title': 'Task Board' }
+  const words: Record<string, string> = { 'tab.title': 'Mission Board' }
   harness.ctx = {
     effect: (body: () => (() => void) | void) => {
       bodies.push(body)
@@ -226,6 +229,7 @@ function injectedConfig(): InjectedConfig {
     requestTimeoutMs: 8000,
     aweaveRoot: '/platform',
     operations: FENCED_OPERATIONS,
+    embedScriptPath: '/api/aweave-dsh-devkit/mission-board/embed.js',
   }
 }
 
@@ -234,120 +238,10 @@ function injectedConfig(): InjectedConfig {
  * @param harness - activated harness.
  * @returns the face.
  */
-function faceOf(harness: ApplyHarness): TaskBoardInjected {
+function faceOf(harness: ApplyHarness): MissionBoardInjected {
   const inject = harness.entries[0]!.options.inject
   if (inject === undefined) throw new Error('the body was registered without an inject face')
   return inject()
-}
-
-/** Transport facts captured from the stubbed `fetch`. */
-interface SeenRequest {
-  url: string
-  method: string | undefined
-  body: string | undefined
-}
-
-/**
- * Run one call against a stubbed transport that records the request.
- * @param harness - activated harness.
- * @param respond - response to answer with, or an error to throw.
- * @param invoke - the api call to make.
- * @returns the recorded requests and what the call resolved to.
- */
-async function capturing(
-  harness: ApplyHarness,
-  respond: () => Response,
-  invoke: (face: TaskBoardInjected) => Promise<unknown>,
-): Promise<{ seen: SeenRequest[]; value: unknown }> {
-  const seen: SeenRequest[] = []
-  const original = globalThis.fetch
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    seen.push({
-      url: String(input),
-      method: init?.method,
-      body: typeof init?.body === 'string' ? init.body : undefined,
-    })
-    return respond()
-  }) as typeof fetch
-  try {
-    return { seen, value: await invoke(faceOf(harness)) }
-  } finally {
-    globalThis.fetch = original
-  }
-}
-
-/**
- * Run one call against a stubbed transport and capture the failure it threw.
- * @param harness - activated harness.
- * @param respond - response to answer with.
- * @param invoke - the api call to make.
- * @returns the thrown value.
- */
-async function captureFailure(
-  harness: ApplyHarness,
-  respond: () => Response,
-  invoke: (face: TaskBoardInjected) => Promise<unknown>,
-): Promise<unknown> {
-  const original = globalThis.fetch
-  globalThis.fetch = (async () => respond()) as typeof fetch
-  try {
-    await invoke(faceOf(harness))
-    return undefined
-  } catch (error: unknown) {
-    return error
-  } finally {
-    globalThis.fetch = original
-  }
-}
-
-/**
- * Assert a captured throw is a board API failure and read its fields.
- *
- * The shape is asserted rather than `instanceof TaskBoardApiError`: the bundle is
- * evaluated through `new Function`, so it carries its OWN copy of the class and an
- * `instanceof` against the spec's source import would be false even though the
- * error is exactly the right one. The class NAME plus every field is asserted
- * instead, which is strictly more specific than an identity check.
- * @param thrown - the captured throw.
- * @returns the failure's fields.
- */
-function failureOf(thrown: unknown): {
-  name: unknown
-  kind: unknown
-  code: unknown
-  message: unknown
-  status: unknown
-} {
-  expect(thrown).toBeInstanceOf(Error)
-  const error = thrown as Error & { kind?: unknown; code?: unknown; status?: unknown }
-  expect(error.name).toBe('TaskBoardApiError')
-  return { name: error.name, kind: error.kind, code: error.code, message: error.message, status: error.status }
-}
-
-/**
- * A fenced-route answer carrying a success envelope.
- * @param data - payload to place in `data`.
- * @returns the response.
- */
-function ok(data: unknown): Response {
-  return new Response(JSON.stringify({ success: true, data }), {
-    status: 200,
-    headers: { 'content-type': 'application/json' },
-  })
-}
-
-/**
- * A fenced-route answer carrying a failure envelope.
- * @param status - HTTP status.
- * @param code - the backend's error code.
- * @param message - the backend's message.
- * @returns the response.
- */
-function failure(status: number, code: string, message: string): Response {
-  return new Response(JSON.stringify({ success: false, error: { code, message } }), {
-    status,
-    headers: { 'content-type': 'application/json' },
-  })
 }
 
 describe('built Client bundle', () => {
@@ -390,16 +284,23 @@ describe('built Client bundle', () => {
       expect(source).not.toContain(`require("${specifier}")`)
       expect(source).not.toContain(`require('${specifier}')`)
     }
-    // And they really are inlined, so the assertions above cannot pass on a bundle
-    // that simply dropped the board: dnd-kit's own attribute and the address scheme
-    // the open path builds are both present in the emitted source.
-    expect(source).toContain('aria-roledescription')
+    // And it really is inlined, so the assertion above cannot pass on a bundle
+    // that simply dropped `open-task.ts`: the address scheme the open path
+    // builds is present in the emitted source.
     expect(source).toContain('dsh-resource://file/')
   })
 
+  it('never bundles @dnd-kit — the board itself moved to the runtime-loaded embed.js', () => {
+    const source = readFileSync(BUNDLE_PATH, 'utf8')
+    expect(source).not.toContain('@dnd-kit/core')
+    expect(source).not.toContain('@dnd-kit/sortable')
+    expect(source).not.toContain('@dnd-kit/utilities')
+    expect(source).not.toContain('aria-roledescription')
+  })
+
   it('carries no Node global that a browser page does not define', () => {
-    // Regression gate for a measured outage: inlining `@dnd-kit/*` pulled in a
-    // dependency reading `process.env.NODE_ENV`, the emitted factory threw
+    // Regression gate for a measured outage: inlining a dependency reading
+    // `process.env.NODE_ENV` made the emitted factory throw
     // `ReferenceError: process is not defined` at boot, and the ENTIRE Web UI
     // showed "Failed to load plugins". The build bakes the substitution
     // (`define` in tsdown.config.ts), so the emitted source must not mention
@@ -412,14 +313,15 @@ describe('built Client bundle', () => {
 })
 
 describe('built Client apply', () => {
-  it('registers the Task Board tab kind with its guide entry', () => {
+  it('registers the Mission Board tab kind with its guide entry', () => {
     const harness = activate(injectedConfig())
     expect(harness.tabs).toHaveLength(1)
     const definition = harness.tabs[0]!
     expect(definition.id).toBe(PLUGIN_ID)
     expect(definition.kind).toBe(TAB_KIND)
+    expect(definition.kind).toBe('aweave-mission-board')
     expect(definition.keepMounted).toBe(false)
-    expect(definition.title('sidebar://aweave-taskboard')).toBe('Task Board')
+    expect(definition.title('sidebar://aweave-mission-board')).toBe('Mission Board')
     expect(definition.guide).toHaveLength(1)
     expect(definition.guide![0]!.id).toBe(GUIDE_ENTRY_ID)
     expect(definition.guide![0]!.order).toBeGreaterThan(0)
@@ -429,8 +331,9 @@ describe('built Client apply', () => {
     const harness = activate(injectedConfig())
     expect(harness.dictionaries).toHaveLength(1)
     expect(harness.dictionaries[0]!.ns).toBe(LOCALE_NAMESPACE)
+    expect(harness.dictionaries[0]!.ns).toBe('aweaveMissionBoard')
     expect(harness.dictionaries[0]!.locale).toBe('en')
-    expect(harness.dictionaries[0]!.dict['tab.title']).toBe('Task Board')
+    expect(harness.dictionaries[0]!.dict['tab.title']).toBe('Mission Board')
   })
 
   it('registers one keyed body on the tab-body seat', () => {
@@ -446,118 +349,14 @@ describe('built Client apply', () => {
     const config = injectedConfig()
     const harness = activate(config)
     expect(faceOf(harness).config).toEqual(config)
-    expect(faceOf(harness).api).toBeDefined()
   })
 
-  it('hands the body no configuration, and no data surface, when the global is absent or malformed', () => {
+  it('hands the body no configuration when the global is absent or malformed', () => {
     expect(faceOf(activate()).config).toBeUndefined()
-    expect(faceOf(activate()).api).toBeUndefined()
     ;(globalThis as Record<string, unknown>)[CONFIG_GLOBAL] = { baseUrl: 7 }
     const harness = createContext()
     ;(pluginExports.apply as (ctx: Context) => void)(harness.ctx)
     harness.run()
     expect(faceOf(harness).config).toBeUndefined()
-    expect(faceOf(harness).api).toBeUndefined()
-  })
-
-  it('binds the data surface to the paths and methods the Host published', async () => {
-    const harness = activate(injectedConfig())
-    const { seen, value } = await capturing(
-      harness,
-      () => ok({ statuses: [{ id: 'todo', label: 'Todo', color: '#111' }] }),
-      async face => await face.api!.loadStatuses(),
-    )
-    expect(seen).toEqual([{ url: '/api/aweave-dsh-devkit/config', method: 'GET', body: undefined }])
-    expect(value).toEqual([{ id: 'todo', label: 'Todo', color: '#111' }])
-  })
-
-  it('joins the filter facets into the comma-separated query the backend declares', async () => {
-    const harness = activate(injectedConfig())
-    const { seen } = await capturing(harness, () => ok({ tasks: [] }), async face => await face.api!.listTasks({
-      scopes: ['devtools/common'],
-      tags: ['dsh', 'plugin'],
-      status: 'in-progress',
-      text: 'kanban board',
-    }))
-    const url = new URL(seen[0]!.url, 'http://page.invalid')
-    expect(url.pathname).toBe('/api/aweave-dsh-devkit/tasks')
-    expect(url.searchParams.get('scopes')).toBe('devtools/common')
-    expect(url.searchParams.get('tags')).toBe('dsh,plugin')
-    expect(url.searchParams.get('status')).toBe('in-progress')
-    expect(url.searchParams.get('text')).toBe('kanban board')
-  })
-
-  it('omits an unconstrained facet rather than sending it blank', async () => {
-    const harness = activate(injectedConfig())
-    const { seen } = await capturing(harness, () => ok({ tasks: [] }), async face => await face.api!.listTasks({
-      scopes: [], tags: [], status: '', text: '',
-    }))
-    expect(seen[0]!.url).toBe('/api/aweave-dsh-devkit/tasks')
-  })
-
-  it('sends the update as a POST body the Host can derive the task id from', async () => {
-    const harness = activate(injectedConfig())
-    const { seen } = await capturing(
-      harness,
-      () => ok({ id: 'x.md' }),
-      async face => await face.api!.updateTask({
-        id: 'resources/workspaces/k/dsh/_tasks/x.md',
-        status: 'done',
-        rank: 2.5,
-      }),
-    )
-    expect(seen[0]!.url).toBe('/api/aweave-dsh-devkit/tasks/update')
-    expect(seen[0]!.method).toBe('POST')
-    expect(JSON.parse(seen[0]!.body!)).toEqual({
-      id: 'resources/workspaces/k/dsh/_tasks/x.md',
-      status: 'done',
-      rank: 2.5,
-    })
-  })
-
-  it('surfaces a backend refusal as a backend failure carrying its code and message', async () => {
-    const harness = activate(injectedConfig())
-    const thrown = await captureFailure(
-      harness,
-      () => failure(400, 'HTTP_ERROR', 'Bad Request Exception'),
-      async face => await face.api!.createTask({ scope: 'devtools', name: 'x' }),
-    )
-    expect(failureOf(thrown)).toEqual({
-      name: 'TaskBoardApiError',
-      kind: 'backend',
-      code: 'HTTP_ERROR',
-      message: 'Bad Request Exception',
-      status: 400,
-    })
-  })
-
-  it('surfaces the Host\u2019s upstream-unreachable answer as unreachable, not as an empty board', async () => {
-    const harness = activate(injectedConfig())
-    const thrown = await captureFailure(
-      harness,
-      () => failure(502, 'UPSTREAM_UNREACHABLE', 'the backend did not answer'),
-      async face => await face.api!.loadStatuses(),
-    )
-    expect(failureOf(thrown).kind).toBe('unreachable')
-  })
-
-  it('treats a thrown transport as unreachable', async () => {
-    const harness = activate(injectedConfig())
-    const original = globalThis.fetch
-    globalThis.fetch = (async () => { throw new TypeError('Failed to fetch') }) as typeof fetch
-    const thrown = await faceOf(harness).api!.loadScopes().then(() => undefined, (error: unknown) => error)
-    globalThis.fetch = original
-    expect(failureOf(thrown).kind).toBe('unreachable')
-    expect(failureOf(thrown).message).toBe('Failed to fetch')
-  })
-
-  it('treats a non-JSON answer as unreadable rather than trusting it', async () => {
-    const harness = activate(injectedConfig())
-    const thrown = await captureFailure(
-      harness,
-      () => new Response('<html>proxy</html>', { status: 200 }),
-      async face => await face.api!.loadStatuses(),
-    )
-    expect(failureOf(thrown).kind).toBe('malformed')
   })
 })

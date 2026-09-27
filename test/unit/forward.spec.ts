@@ -1,13 +1,15 @@
 /**
  * Forward policy: the fenced allowlist, method rejection, the upstream mapping,
- * the upstream status mapping, and the unreachable-backend answer.
+ * the upstream status mapping, and the unreachable-backend answer — plus the
+ * `embed.js` script route's own, deliberately different, forwarding policy.
  *
  * The policy is exercised through its own interface — request facts in, a plan or
  * a `Response` out — so no network and no Host boot are involved.
  */
 import { describe, expect, it } from 'vitest'
 
-import { CHANNEL_METHODS, FENCED_PATHS, FENCED_PREFIX } from '../../src/config.ts'
+import { CHANNEL_METHODS, EMBED_SCRIPT_UPSTREAM_PATH, FENCED_PATHS, FENCED_PREFIX } from '../../src/config.ts'
+import { embedMethodNotAllowed, forwardEmbedScript } from '../../src/host/embed-route.ts'
 import {
   allowHeader,
   findFencedPath,
@@ -16,7 +18,6 @@ import {
   normalizeBaseUrl,
   planForward,
   refusalResponse,
-  taskIdFromBody,
   type ForwardPlan,
   type UpstreamCall,
   type UpstreamFetch,
@@ -28,8 +29,8 @@ const ORIGIN = 'http://127.0.0.1:3080'
 /** Configured backend origin, without a trailing slash. */
 const BASE = 'http://127.0.0.1:3456'
 
-/** The update operation's fenced path. */
-const UPDATE_PATH = `${FENCED_PREFIX}/tasks/update`
+/** The mission-update operation's fenced path. */
+const UPDATE_PATH = `${FENCED_PREFIX}/missions/update`
 
 /**
  * Plan one request, failing the test when the policy refuses it.
@@ -70,7 +71,7 @@ describe('fenced allowlist', () => {
   it('answers exactly the registered paths and nothing else', () => {
     for (const entry of FENCED_PATHS) expect(findFencedPath(entry.path)).toBe(entry)
     expect(findFencedPath(`${FENCED_PREFIX}/__absent`)).toBeUndefined()
-    expect(findFencedPath('/api/other-plugin/tasks')).toBeUndefined()
+    expect(findFencedPath('/api/other-plugin/missions')).toBeUndefined()
     expect(findFencedPath('/dsh-debate/models')).toBeUndefined()
   })
 
@@ -93,7 +94,7 @@ describe('fenced allowlist', () => {
     expect(new Set(CHANNEL_METHODS).size).toBe(CHANNEL_METHODS.length)
   })
 
-  it('maps every backend operation exactly once', () => {
+  it('maps every backend operation exactly once, each to a FIXED upstream path', () => {
     const operations = FENCED_PATHS.flatMap(entry => entry.operations.map(operation => ({
       key: operation.key,
       method: operation.method,
@@ -101,20 +102,20 @@ describe('fenced allowlist', () => {
       upstreamPath: operation.upstreamPath,
     })))
     expect(operations).toEqual([
-      { key: 'scopes', method: 'GET', upstreamMethod: 'GET', upstreamPath: '/taskboard/scopes' },
-      { key: 'config', method: 'GET', upstreamMethod: 'GET', upstreamPath: '/taskboard/config' },
-      { key: 'list-tasks', method: 'GET', upstreamMethod: 'GET', upstreamPath: '/taskboard/tasks' },
-      { key: 'create-task', method: 'POST', upstreamMethod: 'POST', upstreamPath: '/taskboard/tasks' },
-      // The id rides in the body: an Aweave-root-relative task path contains `/`
-      // and cannot be an exact-route segment.
-      { key: 'update-task', method: 'POST', upstreamMethod: 'PATCH', upstreamPath: undefined },
+      { key: 'mission-config', method: 'GET', upstreamMethod: 'GET', upstreamPath: '/missions/config' },
+      { key: 'mission-list', method: 'GET', upstreamMethod: 'GET', upstreamPath: '/missions' },
+      { key: 'mission-detail', method: 'GET', upstreamMethod: 'GET', upstreamPath: '/missions/detail' },
+      // Unlike the deleted taskboard update route, the id rides in the BODY
+      // (`POST /missions/update`'s DTO), never in the URL, so this row needs
+      // no per-request path derivation.
+      { key: 'mission-update', method: 'POST', upstreamMethod: 'POST', upstreamPath: '/missions/update' },
     ])
   })
 })
 
 describe('method rejection', () => {
   it('answers 405 with Allow for a path that exists but not for that verb', () => {
-    expect(refusalFor(`${FENCED_PREFIX}/scopes`, 'POST')).toEqual({
+    expect(refusalFor(`${FENCED_PREFIX}/missions/config`, 'POST')).toEqual({
       status: 405,
       allow: 'GET',
       code: 'METHOD_NOT_ALLOWED',
@@ -134,14 +135,14 @@ describe('method rejection', () => {
   })
 
   it('lists every method a fenced path implements', () => {
-    const tasks = findFencedPath(`${FENCED_PREFIX}/tasks`)!
-    expect(allowHeader(tasks)).toBe('GET, POST')
-    expect(allowHeader(findFencedPath(`${FENCED_PREFIX}/config`)!)).toBe('GET')
+    const list = findFencedPath(`${FENCED_PREFIX}/missions/list`)!
+    expect(allowHeader(list)).toBe('GET')
+    expect(allowHeader(findFencedPath(UPDATE_PATH)!)).toBe('POST')
   })
 
   it('writes the 405 response with the Allow header and a JSON body', async () => {
     const decision = planForward(
-      { method: 'POST', url: `${ORIGIN}${FENCED_PREFIX}/scopes`, contentType: undefined },
+      { method: 'POST', url: `${ORIGIN}${FENCED_PREFIX}/missions/config`, contentType: undefined },
       undefined,
       BASE,
     )
@@ -151,16 +152,18 @@ describe('method rejection', () => {
     expect(response.headers.get('allow')).toBe('GET')
     expect(await response.json()).toEqual({
       success: false,
-      error: { code: 'METHOD_NOT_ALLOWED', message: `POST is not implemented on ${FENCED_PREFIX}/scopes` },
+      error: { code: 'METHOD_NOT_ALLOWED', message: `POST is not implemented on ${FENCED_PREFIX}/missions/config` },
     })
   })
 })
 
 describe('upstream mapping', () => {
   it('forwards a read verb with its query string and no body', () => {
-    const plan = planFor(`${FENCED_PREFIX}/tasks?scopes=devtools/common&status=todo`, 'GET')
+    const plan = planFor(`${FENCED_PREFIX}/missions/detail?id=resources%2Fworkspaces%2Fk%2Fdsh%2F_missions%2F__260926-probe%2FINDEX.md`, 'GET')
     expect(plan.upstreamMethod).toBe('GET')
-    expect(plan.upstreamUrl).toBe(`${BASE}/taskboard/tasks?scopes=devtools/common&status=todo`)
+    expect(plan.upstreamUrl).toBe(
+      `${BASE}/missions/detail?id=resources%2Fworkspaces%2Fk%2Fdsh%2F_missions%2F__260926-probe%2FINDEX.md`,
+    )
     expect(plan.body).toBeUndefined()
   })
 
@@ -168,58 +171,31 @@ describe('upstream mapping', () => {
     expect(normalizeBaseUrl('http://127.0.0.1:3456///')).toBe('http://127.0.0.1:3456')
     expect(normalizeBaseUrl('  http://127.0.0.1:3456  ')).toBe('http://127.0.0.1:3456')
     const plan = planForward(
-      { method: 'GET', url: `${ORIGIN}${FENCED_PREFIX}/config`, contentType: undefined },
+      { method: 'GET', url: `${ORIGIN}${FENCED_PREFIX}/missions/config`, contentType: undefined },
       undefined,
       'http://127.0.0.1:3456/',
     )
     if (!plan.ok) throw new Error('expected a plan')
-    expect(plan.plan.upstreamUrl).toBe(`${BASE}/taskboard/config`)
+    expect(plan.plan.upstreamUrl).toBe(`${BASE}/missions/config`)
   })
 
-  it('forwards a create body byte-for-byte', () => {
-    const body = JSON.stringify({ scope: 'devtools/common', name: 'Probe' })
-    const plan = planFor(`${FENCED_PREFIX}/tasks`, 'POST', body, 'application/json')
+  it('forwards an update body byte-for-byte, id included, to the fixed upstream path', () => {
+    const id = 'resources/workspaces/k/dsh/_missions/__260926-probe/INDEX.md'
+    const body = JSON.stringify({ id, status: 'done', rank: 1.5 })
+    const plan = planFor(UPDATE_PATH, 'POST', body, 'application/json')
     expect(plan.upstreamMethod).toBe('POST')
-    expect(plan.upstreamUrl).toBe(`${BASE}/taskboard/tasks`)
+    expect(plan.upstreamUrl).toBe(`${BASE}/missions/update`)
     expect(plan.body).toBe(body)
     expect(plan.contentType).toBe('application/json')
   })
 
-  it('turns an update request into PATCH .../tasks/<encoded id> and strips the id', () => {
-    const id = 'resources/workspaces/k/dsh/_tasks/260926-probe.md'
-    const plan = planFor(
-      UPDATE_PATH,
-      'POST',
-      JSON.stringify({ id, status: 'done', rank: 1.5 }),
-      'application/json',
-    )
-    expect(plan.upstreamMethod).toBe('PATCH')
-    expect(plan.upstreamUrl).toBe(`${BASE}/taskboard/tasks/${encodeURIComponent(id)}`)
-    // `forbidNonWhitelisted` on that route makes an extra `id` a 400, so the
-    // forwarded payload must not carry it.
-    expect(JSON.parse(plan.body!)).toEqual({ status: 'done', rank: 1.5 })
-  })
-
-  it('refuses an update whose body names no task', () => {
-    expect(refusalFor(UPDATE_PATH, 'POST', undefined)).toEqual({ status: 400, code: 'INVALID_INPUT' })
-    expect(refusalFor(UPDATE_PATH, 'POST', '{}')).toEqual({ status: 400, code: 'INVALID_INPUT' })
-    expect(refusalFor(UPDATE_PATH, 'POST', 'not json')).toEqual({ status: 400, code: 'INVALID_INPUT' })
-    expect(refusalFor(UPDATE_PATH, 'POST', JSON.stringify({ id: '', status: 'done' }))).toEqual({
-      status: 400,
-      code: 'INVALID_INPUT',
-    })
-    expect(refusalFor(UPDATE_PATH, 'POST', JSON.stringify({ id: 7 }))).toEqual({
-      status: 400,
-      code: 'INVALID_INPUT',
-    })
-  })
-
-  it('reads a task id only from a JSON object with a non-empty string id', () => {
-    expect(taskIdFromBody(JSON.stringify({ id: 'a/b.md' }))).toBe('a/b.md')
-    expect(taskIdFromBody(undefined)).toBeUndefined()
-    expect(taskIdFromBody('')).toBeUndefined()
-    expect(taskIdFromBody('[]')).toBeUndefined()
-    expect(taskIdFromBody(JSON.stringify({ id: null }))).toBeUndefined()
+  it('never refuses a well-formed request with 400 — the backend, not this policy, validates the body', () => {
+    // Unlike the deleted taskboard route (whose id had to be parsed out of the
+    // body to build a PATCH URL), every mission operation forwards a fixed
+    // path: there is nothing here for this policy to reject on shape.
+    expect(planFor(UPDATE_PATH, 'POST', undefined, undefined).body).toBeUndefined()
+    expect(planFor(UPDATE_PATH, 'POST', '{}', 'application/json').body).toBe('{}')
+    expect(planFor(UPDATE_PATH, 'POST', 'not json', 'application/json').body).toBe('not json')
   })
 })
 
@@ -246,7 +222,7 @@ describe('upstream status mapping', () => {
       headers: { 'content-type': 'application/json; charset=utf-8' },
     })
     const stub = capture(upstream)
-    const response = await forwardToBackend(planFor(`${FENCED_PREFIX}/config`, 'GET'), {
+    const response = await forwardToBackend(planFor(`${FENCED_PREFIX}/missions/config`, 'GET'), {
       timeoutMs: 1000,
       fetch: stub.fetch,
     })
@@ -257,12 +233,12 @@ describe('upstream status mapping', () => {
   })
 
   it('passes an upstream error envelope and status through verbatim', async () => {
-    const envelope = { success: false, error: { code: 'INVALID_INPUT', message: 'scope must not be empty' } }
+    const envelope = { success: false, error: { code: 'INVALID_INPUT', message: 'status must be one of mission.statuses' } }
     const stub = capture(new Response(JSON.stringify(envelope), {
       status: 400,
       headers: { 'content-type': 'application/json' },
     }))
-    const response = await forwardToBackend(planFor(`${FENCED_PREFIX}/tasks`, 'POST', '{}', 'application/json'), {
+    const response = await forwardToBackend(planFor(UPDATE_PATH, 'POST', '{}', 'application/json'), {
       timeoutMs: 1000,
       fetch: stub.fetch,
     })
@@ -272,7 +248,7 @@ describe('upstream status mapping', () => {
 
   it('answers 502 with a readable body when the backend is unreachable', async () => {
     const stub = capture(() => Promise.reject(new TypeError('fetch failed')))
-    const response = await forwardToBackend(planFor(`${FENCED_PREFIX}/scopes`, 'GET'), {
+    const response = await forwardToBackend(planFor(`${FENCED_PREFIX}/missions/list`, 'GET'), {
       timeoutMs: 1000,
       fetch: stub.fetch,
     })
@@ -280,8 +256,8 @@ describe('upstream status mapping', () => {
     const payload = await response.json() as { error: { code: string; message: string } }
     expect(payload.error.code).toBe('UPSTREAM_UNREACHABLE')
     // The message must name the call that failed: a Human reads it as the board's
-    // "the backend is down" line, not as a task-list result.
-    expect(payload.error.message).toContain(`${BASE}/taskboard/scopes`)
+    // "the backend is down" line, not as an empty mission list.
+    expect(payload.error.message).toContain(`${BASE}/missions`)
     expect(payload.error.message).toContain('TypeError: fetch failed')
   })
 
@@ -291,7 +267,7 @@ describe('upstream status mapping', () => {
       signals.push(call.signal)
       call.signal.addEventListener('abort', () => { reject(call.signal.reason) })
     })
-    const response = await forwardToBackend(planFor(`${FENCED_PREFIX}/scopes`, 'GET'), {
+    const response = await forwardToBackend(planFor(`${FENCED_PREFIX}/missions/list`, 'GET'), {
       timeoutMs: 20,
       fetch: stalling,
     })
@@ -310,5 +286,43 @@ describe('bind-host defence in depth', () => {
     expect(warning).toContain('0.0.0.0')
     expect(warning).toContain('/api')
     expect(warning).toContain('defence in depth')
+  })
+})
+
+describe('the embed.js script route — a DIFFERENT policy from the JSON one', () => {
+  it('answers 405 with Allow for a POST, plain text rather than a JSON envelope', () => {
+    const response = embedMethodNotAllowed()
+    expect(response.status).toBe(405)
+    expect(response.headers.get('allow')).toBe('GET')
+    expect(response.headers.get('content-type')).toContain('text/plain')
+  })
+
+  it('forwards the upstream script verbatim as application/javascript', async () => {
+    const script = 'window.AweaveMissionBoard = { version: "0.1.0", mount() {} }'
+    const response = await forwardEmbedScript(EMBED_SCRIPT_UPSTREAM_PATH, {
+      baseUrl: BASE,
+      timeoutMs: 1000,
+      fetch: async (url) => {
+        expect(url).toBe(`${BASE}${EMBED_SCRIPT_UPSTREAM_PATH}`)
+        return new Response(script, { status: 200 })
+      },
+    })
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toContain('application/javascript')
+    expect(response.headers.get('cache-control')).toBe('no-store')
+    expect(await response.text()).toBe(script)
+  })
+
+  it('answers a PLAIN-TEXT 502 when the backend is unreachable — a <script src> cannot read a JSON refusal', async () => {
+    const response = await forwardEmbedScript(EMBED_SCRIPT_UPSTREAM_PATH, {
+      baseUrl: BASE,
+      timeoutMs: 1000,
+      fetch: async () => { throw new TypeError('fetch failed') },
+    })
+    expect(response.status).toBe(502)
+    expect(response.headers.get('content-type')).toContain('text/plain')
+    const text = await response.text()
+    expect(text).toContain(`${BASE}${EMBED_SCRIPT_UPSTREAM_PATH}`)
+    expect(text).toContain('TypeError: fetch failed')
   })
 })
