@@ -1,6 +1,6 @@
 {
   "name": "aweave-dsh-devkit",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "DSH Web plugin that opens the Aweave Mission Board in the right sidebar and as a Missions page with a mission file tree and markdown viewer, loading @hod/aweave-mission-web's embed.js and reaching its backend through the host's admission-fenced /api channel.",
   "license": "MIT",
@@ -71,8 +71,10 @@
     "@deepseek-ai/dsh-host-webserver": "link:../deepseek-harness/packages/host/webserver",
     "@deepseek-ai/dsh-util-workspace-path": "link:../deepseek-harness/packages/util/workspace-path",
     "@deepseek-ai/schemastery": "link:../deepseek-harness/vendor/schemastery",
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.20.0",
     "@types/react": "~18.3.1",
+    "js-yaml": "^4.1.0",
     "react": "^18.2.0",
     "tsdown": "link:../deepseek-harness/node_modules/tsdown",
     "typescript": "^5.9.0",

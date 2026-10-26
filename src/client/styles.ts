@@ -358,6 +358,107 @@ const PAGE_STYLESHEET = `
   [data-aweave-devkit='missions-page'] .awe-mp-row,
   [data-aweave-devkit='missions-page'] .awe-mp-splitter::after { transition: none; }
 }
+/* ── Markdown Properties panel (file viewer, above the built-in editor) ───── */
+[data-aweave-devkit='md-properties'] {
+  flex: none;
+  max-height: 40%;
+  overflow: auto;
+  box-sizing: border-box;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  container-type: inline-size;
+}
+[data-aweave-devkit='md-properties'] *,
+[data-aweave-devkit='md-properties'] *::before,
+[data-aweave-devkit='md-properties'] *::after { box-sizing: border-box; }
+[data-aweave-devkit='md-properties'] .awe-pp-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+[data-aweave-devkit='md-properties'] .awe-pp-header--static { cursor: default; font-weight: 400; }
+[data-aweave-devkit='md-properties'] .awe-pp-header:hover { background: var(--dsw-alias-interactive-bg-hover); }
+[data-aweave-devkit='md-properties'] .awe-pp-chevron { display: inline-flex; transition: transform 0.12s ease; }
+[data-aweave-devkit='md-properties'] .awe-pp-chevron[data-open='true'] { transform: rotate(90deg); }
+[data-aweave-devkit='md-properties'] .awe-pp-count { color: var(--dsw-alias-label-tertiary); font-weight: 400; }
+[data-aweave-devkit='md-properties'] .awe-pp-pin {
+  margin-left: auto;
+  padding: 0 6px;
+  border: 0.5px solid var(--dsw-alias-brand-primary);
+  border-radius: var(--dsw-radius-md);
+  color: var(--dsw-alias-brand-primary);
+  font-weight: 400;
+}
+[data-aweave-devkit='md-properties'] .awe-pp-body { padding: 2px 10px 8px 28px; }
+[data-aweave-devkit='md-properties'] .awe-pp-grid { display: flex; flex-direction: column; gap: 4px; }
+[data-aweave-devkit='md-properties'] .awe-pp-row { display: grid; grid-template-columns: minmax(64px, 120px) 1fr; gap: 8px; align-items: start; }
+@container (max-width: 360px) {
+  [data-aweave-devkit='md-properties'] .awe-pp-row { grid-template-columns: minmax(48px, 72px) 1fr; }
+}
+[data-aweave-devkit='md-properties'] .awe-pp-key {
+  overflow: hidden;
+  color: var(--dsw-alias-label-tertiary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+[data-aweave-devkit='md-properties'] .awe-pp-value { min-width: 0; overflow-wrap: anywhere; }
+[data-aweave-devkit='md-properties'] .awe-pp-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+[data-aweave-devkit='md-properties'] .awe-pp-text[data-open='true'] { display: block; -webkit-line-clamp: unset; }
+[data-aweave-devkit='md-properties'] .awe-pp-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+[data-aweave-devkit='md-properties'] .awe-pp-code,
+[data-aweave-devkit='md-properties'] .awe-pp-raw { font-family: var(--ds-font-family-code); font-size: 12px; }
+[data-aweave-devkit='md-properties'] .awe-pp-raw {
+  margin: 4px 0;
+  padding: 6px 8px;
+  overflow: auto;
+  border: 0.5px solid var(--dsw-alias-border-l1);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-2);
+  white-space: pre;
+}
+[data-aweave-devkit='md-properties'] .awe-pp-orientation { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
+[data-aweave-devkit='md-properties'] .awe-pp-hint { color: var(--dsw-alias-label-tertiary); }
+[data-aweave-devkit='md-properties'] .awe-pp-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 4px 8px;
+  border: 0.5px solid var(--dsw-alias-state-warn-primary);
+  border-radius: var(--dsw-radius-md);
+}
+[data-aweave-devkit='md-properties'] .awe-pp-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-brand-primary);
+  font: inherit;
+  cursor: pointer;
+}
 `
 
 /**

@@ -60,7 +60,9 @@ import {
 import { en } from './locale.ts'
 import { MissionBoardBody, type MissionBoardInjected } from './MissionBoardBody.tsx'
 import { MissionsPage, type MissionsPageInjected } from './MissionsPage.tsx'
+import { createMarkdownPropertiesViewer } from './MarkdownPropertiesViewer.tsx'
 import { NavIcon } from './NavIcon.tsx'
+import type { BetterSidebarLike } from './lib/better-sidebar.ts'
 import { createPageMemory } from './page-memory.ts'
 import { installBoardStyles } from './styles.ts'
 
@@ -76,6 +78,9 @@ export type { MissionApiError, MissionApiFailureKind } from './lib/mission-trans
  * `sidebar.right.pane.tab`'s owner and the Session framework.
  */
 export const inject = ['slots', 'locale', 'sidebarRightTabs']
+
+/** Descriptor id of the markdown viewer registered with `dsh-better-sidebar`. */
+const MARKDOWN_VIEWER_ID = 'aweave-dsh-devkit:markdown-properties'
 
 /** The slice of the layout service this half calls. */
 interface LayoutLike {
@@ -128,6 +133,24 @@ export function apply(ctx: ClientContext): void {
     const scoped = inner as ClientContext & { layout: LayoutLike }
     layout = scoped.layout
     scoped.effect(() => () => { layout = undefined }, 'aweave-dsh-devkit: layout service')
+  })
+
+  // The markdown file viewer: registered only when `dsh-better-sidebar` publishes its
+  // service, so its absence (or a build without `registerFileViewer`) leaves the rest
+  // of the plugin untouched. A scoped inject, like the layout service above.
+  bind.inject(['betterSidebar'], (inner) => {
+    const scoped = inner as ClientContext & { betterSidebar?: BetterSidebarLike }
+    const service = scoped.betterSidebar
+    if (service === undefined || typeof service.registerFileViewer !== 'function') return
+    const component = createMarkdownPropertiesViewer(service, t)
+    scoped.effect(() => service.registerFileViewer({
+      id: MARKDOWN_VIEWER_ID,
+      title: () => t('properties.viewerTitle'),
+      exts: ['md', 'markdown'],
+      priority: 10,
+      fetchStrategy: 'fsRead',
+      component,
+    }), 'aweave-dsh-devkit: markdown properties viewer')
   })
 
   const panelId = PAGE_ID as MainPanelId

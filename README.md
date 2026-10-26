@@ -185,6 +185,38 @@ and `NOT_A_MARKDOWN_FILE` are `400`, `NOT_FOUND` is `404`, `FILE_TOO_LARGE` is `
 `AWEAVE_ROOT_UNRESOLVED` and `AWEAVE_RESOURCES_UNAVAILABLE` are `409`, `READ_FAILED` is `500`. Other verbs get `405`
 with `Allow: GET`.
 
+## Markdown Properties panel (file viewer)
+
+Since `0.3.0` the plugin registers a file viewer, `aweave-dsh-devkit:markdown-properties`, for `md` / `markdown`
+through `ctx.betterSidebar.registerFileViewer` (the published extension point of `dsh-better-sidebar`; priority 10
+beats the built-in `markdown` viewer's 0). It renders a **collapsed-by-default, read-only Properties panel** above the
+built-in markdown editor, which is wrapped unchanged (preview/edit, save, conflict banner keep working): every
+front-matter key in document order, arrays as chips, long text clamped to three lines. The panel always carries an
+`orientation` checkbox compatible with the Aweave platform pin (`orientation: true`): ticking writes
+`orientation: true`, unticking deletes the line, `false` is never written.
+
+* **Which block.** The rule of better-sidebar's own preview (first line exactly `---`, closed by the next line that
+  is exactly `---`), so a document never shows both a raw block and the panel, or neither. No front-matter: no panel.
+  Parsing is `js-yaml` with `CORE_SCHEMA`, inlined into `lib/client.js`.
+* **Supported layout for the checkbox.** Block-style front-matter with plain, unquoted top-level keys, one
+  `orientation` entry at most, and uniform line endings. Anything else (root flow mapping, quoted or explicit keys,
+  mixed CRLF and LF, duplicate `orientation`, a parse error) keeps the panel read-only with the checkbox disabled and
+  a reason. Every candidate is re-parsed before the write and must change nothing but `orientation`.
+* **The write.** One `POST sidebar/write` of the whole text, carrying the loaded `mtimeMs` as `expectedMtimeMs`
+  (a stale baseline answers `409 fs-conflict` and the panel offers Reload); then the file is reloaded.
+* **Switching it off.** The viewer has its own enable switch in better-sidebar's Side-card settings page; turning it
+  off falls back to the built-in `markdown` viewer. `dsh-better-sidebar` absent: nothing is registered.
+
+Couplings to `dsh-better-sidebar` internals, to re-check on every bump of that plugin:
+
+* the built-in descriptor id `markdown`, and the editor treating `viewerId === "markdown"` as the markdown editor
+  (this viewer hands the child the built-in id, not its own);
+* `POST sidebar/write?sessionId&path[&cwd]&expectedMtimeMs` with a `text/plain` body and the
+  `{ ok: true, value: { ok: true, mtimeMs? } }` envelope; a missing `expectedMtimeMs` means no gate at all (so this
+  viewer never sends one without it); the route rewrites the whole text to the file's majority line ending;
+* the BOM strip on read (the route re-encodes it on write);
+* the viewer props `onToolbarState` and `onReload` (documented "Internal"), and `markdownPreviewSource`'s block rule.
+
 ## Layout
 
 ```text
@@ -208,12 +240,17 @@ src/
     MissionsPage.tsx       The main page: header stats, board, detail
     MissionDetail.tsx      Mission file tree column and viewer column
     MissionTree.tsx / MarkdownViewer.tsx   The tree and the front-matter-aware markdown viewer
+    MarkdownPropertiesViewer.tsx / PropertiesPanel.tsx   The better-sidebar markdown file viewer and its read-only Properties panel
     open-task.ts            Absolute-path resolution and the open/degrade decision (pure, generic — not mission-specific)
     lib/
       embed-global.ts        The window.AweaveMissionBoard ambient contract this plugin loads at runtime
       mission-index-path.ts   Exact shape check for a mission INDEX.md path (ported from mission-core, pure)
       mission-transport.ts    The fenced routes over plain fetch; envelope unwrapping and the failure split
+      frontmatter-block.ts    Pure: leading block location, supported-layout check, orientation line edit
+      frontmatter-yaml.ts     js-yaml CORE_SCHEMA parse, candidate verification, bounded value formatter
+      better-sidebar.ts       Structural types of better-sidebar's service and the sidebar/write call
 test/
+  unit/frontmatter-orientation.spec.ts  toggleOrientation: tick insert/replace, untick, whole-block removal, no block
   unit/mission-index-path.spec.ts   Every accepted/rejected INDEX.md path shape
   unit/mission-transport.spec.ts    Request shapes and the three-way failure split, no DOM
   unit/open-task.spec.ts            Absolute-path resolution and the non-root-cwd degradation
