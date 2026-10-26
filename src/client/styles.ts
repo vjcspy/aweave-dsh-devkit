@@ -123,7 +123,7 @@ const PAGE_STYLESHEET = `
 [data-aweave-devkit='missions-page'] *::after { box-sizing: border-box; }
 [data-aweave-devkit='missions-page'] .awe-mp-dim { color: var(--dsw-alias-label-secondary); }
 [data-aweave-devkit='missions-page'] .awe-mp-warn { color: var(--dsw-alias-state-warn-primary); }
-[data-aweave-devkit='missions-page'] .awe-mp-mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+[data-aweave-devkit='missions-page'] .awe-mp-mono { font-family: var(--ds-font-family-code); font-size: 12px; }
 [data-aweave-devkit='missions-page'] .awe-mp-grow { flex: 1; }
 
 /* Header */
