@@ -18,13 +18,14 @@
  * almost every user-facing string of the board itself (filters, columns,
  * cards, drag/drop notices) — this plugin's own copy covers only what it
  * still renders directly: the tab shell, the unconfigured/loading/failed
- * states around the embed container, and the open-INDEX degradation notices.
+ * states around the embed container, the open-INDEX degradation notices, and
+ * the Missions page (its row, header, mission file tree and viewer).
  */
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
-    /** Mission Board tab title, guide entry, and the states around the embedded board. */
+    /** Mission Board tab title, guide entry, the Missions page, and the states around the embedded board. */
     aweaveMissionBoard: AweaveMissionBoardKey
   }
 }
@@ -53,6 +54,52 @@ export const en = {
     'This Session reports no workspace root, so {path} cannot be opened. Root the Session inside the Aweave platform.',
   'error.open.outsideSessionRoot':
     '{path} lies outside this Session\'s workspace ({cwd}), so it cannot be opened. Root the Session inside the Aweave platform.',
+
+  'nav.label': 'Missions',
+  'page.title': 'Missions',
+  'page.total': '{count} total',
+  'page.updated': 'Updated {time}',
+  'page.health.ok': 'The Aweave mission backend is reachable',
+  'page.health.loading': 'Contacting the Aweave mission backend…',
+  'page.health.unreachable': 'The Aweave mission backend is unreachable: {message}',
+  'page.health.backend': 'The Aweave mission backend refused a request: {message}',
+  'page.health.malformed': 'The Aweave mission backend answered something unreadable: {message}',
+  'page.retry': 'Retry',
+  'page.back': 'Back to the board',
+  'page.statuses': 'Missions per status',
+  'page.splitter': 'Resize the mission detail',
+
+  'detail.refresh': 'Refresh',
+  'detail.refresh.tip': 'Reload the mission tree and the open file',
+  'detail.close': 'Close',
+  'detail.close.tip': 'Close the mission detail',
+  'detail.splitter': 'Resize the file tree',
+
+  'tree.label': 'Mission files',
+  'tree.mission': 'Mission folder',
+  'tree.plans': 'Linked plans',
+  'tree.references': 'References',
+  'tree.empty': 'This mission folder holds no markdown files.',
+  'tree.truncated': 'The folder is large: the tree shows only the first entries.',
+  'tree.loading': 'Reading the mission folder…',
+  'tree.error': 'The mission folder could not be read: {message}',
+
+  'viewer.loading': 'Loading the file…',
+  'viewer.back': 'Back',
+  'viewer.back.tip': 'Return to the previous file',
+  'viewer.empty': 'This file is empty.',
+  'viewer.frontMatter.more': 'More fields',
+  'viewer.frontMatter.less': 'Fewer fields',
+  'viewer.code.copy': 'Copy',
+  'viewer.code.copied': 'Copied',
+  'viewer.footnotes': 'Footnotes',
+  'viewer.badLink': '"{dest}" is not a markdown file under resources/, so nothing was opened.',
+  'viewer.errors.notFound': 'This file does not exist (any more).',
+  'viewer.errors.tooLarge': 'This file is {size} KiB, over the {limit} KiB viewer limit.',
+  'viewer.errors.root':
+    'The Aweave platform root is not usable, so no file can be read. Set the aweaveRoot setting of aweave-dsh-devkit to the platform root.',
+  'viewer.errors.unreachable': 'The Host could not be reached: {message}',
+  'viewer.errors.generic': 'The file could not be read: {message}',
 } satisfies Record<string, string>
 
 /** Every key the Mission Board dictionary defines. */

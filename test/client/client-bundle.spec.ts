@@ -34,6 +34,8 @@ import {
   FENCED_OPERATIONS,
   GUIDE_ENTRY_ID,
   LOCALE_NAMESPACE,
+  PAGE_ID,
+  PAGE_ROW_ORDER,
   PLUGIN_ID,
   TAB_KIND,
   type InjectedConfig,
@@ -83,7 +85,15 @@ interface RegisteredTabKind {
 
 /** One slot entry as the seat receives it. */
 interface RegisteredEntry {
-  options: { name: string; key?: string; locale?: string; inject?: () => MissionBoardInjected }
+  options: {
+    name: string
+    key?: string
+    id?: string
+    order?: number
+    label?: () => string
+    locale?: string
+    inject?: () => MissionBoardInjected
+  }
   component: unknown
 }
 
@@ -98,6 +108,29 @@ const registrations: Registration[] = []
 /** Bare specifiers the bundle asked the shell's module table for. */
 const requestedSpecifiers: string[] = []
 
+/** A no-op component standing in for one platform primitive. */
+const noop = (): null => null
+
+/** Every primitive the bundle imports. */
+const PRIMITIVE_NAMES: readonly string[] = [
+  'Button',
+  'DisclosureRow',
+  'FileTypeIcon',
+  'IconChevronLeftOutlineRegular',
+  'IconCloseOutlineRegular',
+  'IconGoalOutlineRegular',
+  'IconRefreshOutlineRegular',
+  'MarkdownDelegateProvider',
+  'MarkdownText',
+  'PathLabel',
+  'StateDot',
+  'Tag',
+  'Tooltip',
+]
+
+/** The primitives module the shell's table would hand back, as no-op components. */
+const primitivesStub: Record<string, unknown> = Object.fromEntries(PRIMITIVE_NAMES.map(name => [name, noop]))
+
 /**
  * Answer one module request from a stand-in module table.
  * @param specifier - the bare specifier the bundle asked for.
@@ -108,6 +141,7 @@ function resolveModule(specifier: string): unknown {
   if (specifier === 'react') return React
   if (specifier === 'react/jsx-runtime' || specifier === 'react/jsx-dev-runtime') return JsxRuntime
   if (specifier === 'react-dom') return {}
+  if (specifier === '@deepseek-ai/dsh-client-ui-primitives') return primitivesStub
   throw new Error(`unexpected require(${specifier}) — not a client baseline module`)
 }
 
@@ -177,7 +211,15 @@ function createContext(): ApplyHarness {
     ctx: undefined as unknown as Context,
   }
   const words: Record<string, string> = { 'tab.title': 'Mission Board' }
+  const stubLayout = {
+    panelInfo: { getSnapshot: () => ({ activePanelId: null }) },
+    selectPanel: () => {},
+  }
   harness.ctx = {
+    inject: (_names: string[], callback: (inner: unknown) => void) => {
+      callback({ layout: stubLayout, effect: harness.ctx.effect })
+      return () => {}
+    },
     effect: (body: () => (() => void) | void) => {
       bodies.push(body)
       return () => {}
@@ -239,7 +281,7 @@ function injectedConfig(): InjectedConfig {
  * @returns the face.
  */
 function faceOf(harness: ApplyHarness): MissionBoardInjected {
-  const inject = harness.entries[0]!.options.inject
+  const inject = harness.entries.find(entry => entry.options.name === 'sidebar.right.pane.tab')?.options.inject
   if (inject === undefined) throw new Error('the body was registered without an inject face')
   return inject()
 }
@@ -338,11 +380,17 @@ describe('built Client apply', () => {
 
   it('registers one keyed body on the tab-body seat', () => {
     const harness = activate(injectedConfig())
-    expect(harness.entries).toHaveLength(1)
-    expect(harness.entries[0]!.options.name).toBe('sidebar.right.pane.tab')
-    expect(harness.entries[0]!.options.key).toBe(PLUGIN_ID)
-    expect(harness.entries[0]!.options.locale).toBe(LOCALE_NAMESPACE)
-    expect(typeof harness.entries[0]!.component).toBe('function')
+    expect(harness.entries).toHaveLength(3)
+    const tab = harness.entries.find(entry => entry.options.name === 'sidebar.right.pane.tab')!
+    expect(tab.options.key).toBe(PLUGIN_ID)
+    expect(tab.options.locale).toBe(LOCALE_NAMESPACE)
+    expect(typeof tab.component).toBe('function')
+    const page = harness.entries.find(entry => entry.options.name === 'main')!
+    expect(page.options.key).toBe(PAGE_ID)
+    expect(page.options.locale).toBe(LOCALE_NAMESPACE)
+    const row = harness.entries.find(entry => entry.options.name === 'sidebar.panellist')!
+    expect(row.options.id).toBe(PAGE_ID)
+    expect(row.options.order).toBe(PAGE_ROW_ORDER)
   })
 
   it('hands the body the configuration the Host published', () => {

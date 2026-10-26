@@ -268,7 +268,7 @@ export function describe(error: unknown): string {
  * @param payload - value to serialize.
  * @returns the response to write.
  */
-function jsonResponse(status: number, payload: unknown): Response {
+export function jsonResponse(status: number, payload: unknown): Response {
   return new Response(JSON.stringify(payload), {
     status,
     headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },

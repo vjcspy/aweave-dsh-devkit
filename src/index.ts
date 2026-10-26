@@ -28,7 +28,7 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 import { CONFIG_GLOBAL, EMBED_SCRIPT_PATH, FENCED_OPERATIONS, type InjectedConfig } from './config.ts'
 import { resolveAweaveRoot } from './host/aweave-root.ts'
 import { loopbackDefenceWarning, normalizeBaseUrl } from './host/forward.ts'
-import { registerForwardRoutes } from './host/routes.ts'
+import { registerForwardRoutes, registerMissionFileRoutes } from './host/routes.ts'
 import type { Config } from './schema.ts'
 
 export { Config } from './schema.ts'
@@ -80,4 +80,6 @@ export function apply(ctx: Context, config: Config): void {
   })
 
   registerForwardRoutes(ctx, { baseUrl, timeoutMs: config.requestTimeoutMs })
+  // The Missions page's two read-only filesystem routes; an unresolved root answers them 409.
+  registerMissionFileRoutes(ctx, { root })
 }

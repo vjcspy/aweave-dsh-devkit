@@ -23,6 +23,7 @@ Mission Board tab (right sidebar)  --fetch, same origin, cookie-->  /api/aweave-
 | Half | State |
 | --- | --- |
 | **Host** | Complete: the fenced JSON route table (four mission operations), the `embed.js` script-route proxy with its own error mapping, the upstream forwarding policy, and the Aweave-root resolution. |
+| **Missions page** | A left-sidebar `Missions` row (`sidebar.panellist` order 0.75, under Git) opens the keyed `main` page `aweave-missions`: the same `embed.js` board plus an in-page mission detail (file tree and markdown viewer). It reads no Session, so it works with none open. |
 | **Browser** | Complete: the right-sidebar page type, its guide entry, its dictionary and shell stylesheet, and `MissionBoardBody` — the composition root that loads `embed.js` once per page and mounts it into a plain container, handing it a transport built over the fenced JSON routes and a theme mapped onto this platform's `--dsw-alias-*` tokens. |
 
 There is **no live push (SSE) in this integration**: the shared `/api` channel's forwarder buffers every upstream
@@ -51,6 +52,8 @@ is the fence, and it does not depend on whether a route exists.
 | `/api/aweave-dsh-devkit/missions/detail` | `GET` | `GET /missions/detail` (query string forwarded verbatim: `id`, `progress`) |
 | `/api/aweave-dsh-devkit/missions/update` | `POST` | `POST /missions/update` |
 | `/api/aweave-dsh-devkit/mission-board/embed.js` | `GET` | `GET /mission-board/embed.js` — a SEPARATE, non-JSON policy (see below) |
+| `/api/aweave-dsh-devkit/missions/tree` | `GET` | NOT forwarded: answered by the Host from `<aweaveRoot>/resources/` (see "Mission files") |
+| `/api/aweave-dsh-devkit/missions/file` | `GET` | NOT forwarded: answered by the Host from `<aweaveRoot>/resources/` (see "Mission files") |
 
 Two shapes need stating, because each is forced by a constraint rather than chosen:
 
@@ -171,15 +174,28 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:3180/api/aweav
 The tab itself is proof that the browser half activated: it appears in the right sidebar's guide page as
 *Aweave Mission Board*, and opening it loads `embed.js` and renders the board.
 
+## Mission files
+
+`missions/tree?id=<mission folder>` and `missions/file?path=<path>` are read-only and answered by the Host itself,
+behind the same admission fence. Both are confined to `<aweaveRoot>/resources/` by realpath (the resolved target
+must stay under the resolved `resources/`, so a symlink pointing out of it is refused), serve `.md` regular files
+only, and cap a file at 512 KiB. The tree skips symlinks and dot-entries, goes at most 3 levels deep, lists at most
+2000 entries and sets `truncated` beyond that. Errors use the usual envelope: `INVALID_*`, `PATH_OUTSIDE_RESOURCES`
+and `NOT_A_MARKDOWN_FILE` are `400`, `NOT_FOUND` is `404`, `FILE_TOO_LARGE` is `413` (with `size`),
+`AWEAVE_ROOT_UNRESOLVED` and `AWEAVE_RESOURCES_UNAVAILABLE` are `409`, `READ_FAILED` is `500`. Other verbs get `405`
+with `Allow: GET`.
+
 ## Layout
 
 ```text
 src/
   index.ts            Host half: inject, Aweave-root resolution, index-inject row, route registration
+  mission-path.ts      Dependency-free path validators shared by both halves
   config.ts            Dependency-free shared constants and the fenced route table (JSON + embed.js)
   schema.ts             Host-only schemastery schema (kept out of the browser graph)
   host/
     forward.ts          Allowlist, upstream mapping, upstream call, error mapping for the JSON routes (no ctx, no React)
+    mission-files.ts      Confined tree walk and markdown read behind missions/tree and missions/file (injectable fs facade)
     embed-route.ts       The embed.js script route's own, non-JSON, forwarding policy
     routes.ts            One exact route per fenced path (JSON + embed.js), registered inside ctx.effect()
     aweave-root.ts        Config.aweaveRoot, or the marker walk
@@ -187,7 +203,11 @@ src/
     index.ts             Browser half: page type + guide entry + body + dictionaries + stylesheet
     locale.ts             English dictionary and the namespace's key set
     styles.ts              The tab shell's owned, scoped <style> element (data-plugin / data-plugin-css)
-    MissionBoardBody.tsx   Composition root: loads embed.js once, mounts it, translates onOpenIndex
+    MissionBoardBody.tsx   Right-tab body: mounts the board through useEmbedBoard, translates onOpenIndex
+    useEmbedBoard.ts       Shared embed.js load and mount lifecycle
+    MissionsPage.tsx       The main page: header stats, board, detail
+    MissionDetail.tsx      Mission file tree column and viewer column
+    MissionTree.tsx / MarkdownViewer.tsx   The tree and the front-matter-aware markdown viewer
     open-task.ts            Absolute-path resolution and the open/degrade decision (pure, generic — not mission-specific)
     lib/
       embed-global.ts        The window.AweaveMissionBoard ambient contract this plugin loads at runtime

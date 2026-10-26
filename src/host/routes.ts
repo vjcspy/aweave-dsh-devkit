@@ -12,18 +12,36 @@
  * Each registration is an effect of this context, so plugin teardown removes the
  * routes even on a hot unload.
  *
- * Two DISTINCT route kinds are registered here: the JSON mission operations
+ * Three DISTINCT route kinds are registered here: the JSON mission operations
  * (`config.ts`'s `FENCED_PATHS`, forwarded through `host/forward.ts`'s
- * envelope-aware policy) and the `embed.js` script route (`EMBED_SCRIPT_PATH`,
+ * envelope-aware policy), the `embed.js` script route (`EMBED_SCRIPT_PATH`,
  * forwarded through `host/embed-route.ts`'s script-specific policy) — see that
- * module's comment for why a `<script src>` load cannot share the JSON one.
+ * module's comment for why a `<script src>` load cannot share the JSON one —
+ * and the two read-only mission file routes (`MISSION_FILE_ROUTES`), which
+ * forward nothing and answer from the Host's own disk through
+ * `host/mission-files.ts`.
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { ConnectionFetchRoute } from '@deepseek-ai/dsh-client-connection'
 
-import { CHANNEL_METHODS, EMBED_SCRIPT_PATH, EMBED_SCRIPT_UPSTREAM_PATH, FENCED_PATHS } from '../config.ts'
+import {
+  CHANNEL_METHODS,
+  EMBED_SCRIPT_PATH,
+  EMBED_SCRIPT_UPSTREAM_PATH,
+  FENCED_PATHS,
+  MISSION_FILE_ROUTES,
+} from '../config.ts'
 import { embedMethodNotAllowed, forwardEmbedScript } from './embed-route.ts'
-import { forwardToBackend, planForward, refusalResponse, type UpstreamFetch } from './forward.ts'
+import { forwardToBackend, jsonResponse, planForward, refusalResponse, type UpstreamFetch } from './forward.ts'
+import type { AweaveRootResolution } from './aweave-root.ts'
+import {
+  MISSION_FILE_STATUS,
+  MissionFileError,
+  nodeFs,
+  readMarkdownFile,
+  readMissionTree,
+  type FsFacade,
+} from './mission-files.ts'
 
 /** Host-configurable facts one registration needs. */
 export interface ForwardRouteOptions {
@@ -110,4 +128,74 @@ function registerEmbedScriptRoute(ctx: Context, options: ForwardRouteOptions): v
 export function registerForwardRoutes(ctx: Context, options: ForwardRouteOptions): void {
   registerJsonRoutes(ctx, options)
   registerEmbedScriptRoute(ctx, options)
+}
+
+/** Facts the mission file routes need. */
+export interface MissionFileRouteOptions {
+  /** How the Aweave platform root resolved; an unresolved root answers every request `409`. */
+  readonly root: AweaveRootResolution
+  /** Filesystem; defaults to the real one. */
+  readonly fs?: FsFacade
+}
+
+/**
+ * Answer one mission file request.
+ * @param request - the fetch request.
+ * @param read - the operation: reads a query value from the request's URL and returns the data to wrap.
+ * @returns the JSON response: `{ success: true, data }`, or the mapped error envelope.
+ */
+async function answerMissionFile(request: Request, read: (query: URLSearchParams) => Promise<unknown>): Promise<Response> {
+  if (request.method !== 'GET') {
+    return refusalResponse({
+      status: 405,
+      allow: 'GET',
+      payload: { success: false, error: { code: 'METHOD_NOT_ALLOWED', message: `${request.method} is not implemented on this route` } },
+    })
+  }
+  try {
+    const data = await read(new URL(request.url).searchParams)
+    return jsonResponse(200, { success: true, data })
+  } catch (error: unknown) {
+    if (error instanceof MissionFileError) {
+      const body: { code: string; message: string; size?: number } = { code: error.code, message: error.message }
+      if (error.size !== undefined) body.size = error.size
+      return jsonResponse(MISSION_FILE_STATUS[error.code], { success: false, error: body })
+    }
+    // Deliberately no `String(error)`: an unexpected failure must not leak an absolute Host path.
+    return jsonResponse(500, { success: false, error: { code: 'READ_FAILED', message: 'the mission file could not be read' } })
+  }
+}
+
+/**
+ * Register the two read-only mission file routes, `GET` only (`POST` answers `405` plus `Allow: GET`).
+ * @param ctx - Host context owning the `connection` service.
+ * @param options - the resolved Aweave root and the filesystem.
+ */
+export function registerMissionFileRoutes(ctx: Context, options: MissionFileRouteOptions): void {
+  const fs = options.fs ?? nodeFs
+  const rootOf = (): string => {
+    if (options.root.source === 'unresolved') {
+      throw new MissionFileError(
+        'AWEAVE_ROOT_UNRESOLVED',
+        'no Aweave platform root is configured; set the aweaveRoot plugin setting of aweave-dsh-devkit to the Aweave platform root',
+      )
+    }
+    return options.root.root
+  }
+  const routes: ReadonlyArray<{ path: string; read: (query: URLSearchParams) => Promise<unknown> }> = [
+    { path: MISSION_FILE_ROUTES.tree, read: async query => await readMissionTree(fs, rootOf(), query.get('id') ?? undefined) },
+    { path: MISSION_FILE_ROUTES.file, read: async query => await readMarkdownFile(fs, rootOf(), query.get('path') ?? undefined) },
+  ]
+  for (const entry of routes) {
+    const route: ConnectionFetchRoute = {
+      path: entry.path,
+      methods: CHANNEL_METHODS,
+      requestBody: 'buffered',
+      fetch: async request => await answerMissionFile(request, entry.read),
+    }
+    ctx.effect(() => {
+      const dispose = ctx.connection.fetch.register(route)
+      return () => { void dispose() }
+    }, `aweave-dsh-devkit: ${entry.path}`)
+  }
 }

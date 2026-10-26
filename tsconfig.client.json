@@ -7,6 +7,6 @@
     "noEmit": false,
     "emitDeclarationOnly": true
   },
-  "include": ["src/client", "src/config.ts"],
+  "include": ["src/client", "src/config.ts", "src/mission-path.ts"],
   "exclude": []
 }

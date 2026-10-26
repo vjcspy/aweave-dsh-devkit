@@ -26,17 +26,24 @@ export class MissionApiError extends Error {
   readonly kind: MissionApiFailureKind
   readonly code: string | undefined
   readonly status: number | undefined
+  /** Size in bytes the Host reported for an oversized file (`FILE_TOO_LARGE`); absent otherwise. */
+  readonly size: number | undefined
 
   constructor(
     kind: MissionApiFailureKind,
     message: string,
-    options: { readonly code?: string | undefined; readonly status?: number | undefined } = {},
+    options: {
+      readonly code?: string | undefined
+      readonly status?: number | undefined
+      readonly size?: number | undefined
+    } = {},
   ) {
     super(message)
     this.name = 'MissionApiError'
     this.kind = kind
     this.code = options.code
     this.status = options.status
+    this.size = options.size
   }
 }
 
@@ -52,7 +59,7 @@ const OPERATION = {
 interface Envelope {
   readonly success?: unknown
   readonly data?: unknown
-  readonly error?: { readonly code?: unknown; readonly message?: unknown } | undefined
+  readonly error?: { readonly code?: unknown; readonly message?: unknown; readonly size?: unknown } | undefined
 }
 
 /**
@@ -73,6 +80,57 @@ function describe(error: unknown): string {
  */
 function operationOf(config: InjectedConfig, key: string): InjectedOperation | undefined {
   return config.operations.find(operation => operation.key === key)
+}
+
+/**
+ * Read one fenced JSON response: the `{ success, data | error }` envelope the
+ * Host and the backend both speak, classified into the three failure kinds.
+ *
+ * Shared by the mission transport and the file-tree client, so every fenced JSON
+ * route fails the same way.
+ * @param response - the response `fetch` resolved.
+ * @returns the envelope's `data`.
+ * @throws MissionApiError `unreachable` for a failed hop, `backend` for an error envelope, `malformed` for anything else.
+ */
+export async function readEnvelope(response: Response): Promise<unknown> {
+  let text: string
+  try {
+    text = await response.text()
+  } catch (error: unknown) {
+    throw new MissionApiError('malformed', describe(error), { status: response.status })
+  }
+
+  let payload: unknown
+  try {
+    payload = JSON.parse(text)
+  } catch {
+    throw new MissionApiError(
+      UNREACHABLE_STATUSES.includes(response.status) ? 'unreachable' : 'malformed',
+      text === '' ? `HTTP ${response.status}` : text,
+      { status: response.status },
+    )
+  }
+
+  const envelope = payload as Envelope | null
+  const code = typeof envelope?.error?.code === 'string' ? envelope.error.code : undefined
+  const message = typeof envelope?.error?.message === 'string' ? envelope.error.message : undefined
+  const size = typeof envelope?.error?.size === 'number' ? envelope.error.size : undefined
+
+  if (envelope !== null && typeof envelope === 'object' && envelope.success === true) {
+    return envelope.data
+  }
+  if (envelope !== null && typeof envelope === 'object' && envelope.success === false) {
+    throw new MissionApiError(
+      UNREACHABLE_STATUSES.includes(response.status) ? 'unreachable' : 'backend',
+      message ?? `HTTP ${response.status}`,
+      { code, status: response.status, size },
+    )
+  }
+  throw new MissionApiError(
+    UNREACHABLE_STATUSES.includes(response.status) ? 'unreachable' : 'malformed',
+    message ?? `HTTP ${response.status}`,
+    { code, status: response.status, size },
+  )
 }
 
 /**
@@ -107,44 +165,7 @@ export function createMissionTransport(
     } catch (error: unknown) {
       throw new MissionApiError('unreachable', describe(error))
     }
-
-    let text: string
-    try {
-      text = await response.text()
-    } catch (error: unknown) {
-      throw new MissionApiError('malformed', describe(error), { status: response.status })
-    }
-
-    let payload: unknown
-    try {
-      payload = JSON.parse(text)
-    } catch {
-      throw new MissionApiError(
-        UNREACHABLE_STATUSES.includes(response.status) ? 'unreachable' : 'malformed',
-        text === '' ? `HTTP ${response.status}` : text,
-        { status: response.status },
-      )
-    }
-
-    const envelope = payload as Envelope | null
-    const code = typeof envelope?.error?.code === 'string' ? envelope.error.code : undefined
-    const message = typeof envelope?.error?.message === 'string' ? envelope.error.message : undefined
-
-    if (envelope !== null && typeof envelope === 'object' && envelope.success === true) {
-      return envelope.data
-    }
-    if (envelope !== null && typeof envelope === 'object' && envelope.success === false) {
-      throw new MissionApiError(
-        UNREACHABLE_STATUSES.includes(response.status) ? 'unreachable' : 'backend',
-        message ?? `HTTP ${response.status}`,
-        { code, status: response.status },
-      )
-    }
-    throw new MissionApiError(
-      UNREACHABLE_STATUSES.includes(response.status) ? 'unreachable' : 'malformed',
-      message ?? `HTTP ${response.status}`,
-      { code, status: response.status },
-    )
+    return await readEnvelope(response)
   }
 
   return {
@@ -163,4 +184,65 @@ export function createMissionTransport(
     // No `subscribeEvents`: see `embed-global.ts`'s module comment. `mission-web`'s
     // `Board` falls back to polling `listMissions` when a transport omits it.
   }
+}
+
+/** What a page learns from the board's own traffic, without issuing a request of its own. */
+export interface TransportObserver {
+  /** A `getConfig` or `listMissions` call started. */
+  onLoadStart?(): void
+  /** `getConfig` resolved. */
+  onConfig?(config: unknown): void
+  /** `listMissions` resolved. */
+  onList?(missions: readonly unknown[]): void
+  /** `getConfig` or `listMissions` failed. */
+  onError?(failure: unknown): void
+}
+
+/**
+ * Wrap a transport so an observer sees the results of the board's own polling.
+ *
+ * The board already calls `getConfig` and `listMissions` every 5 s, so the
+ * page's header statistics ride on those calls and add no request. Every call is
+ * forwarded unchanged and its result or failure is returned untouched; an
+ * observer that throws is ignored, so it can never break the board. Methods the
+ * wrapped transport omits (`subscribeEvents`) stay omitted.
+ * @param transport - the transport to wrap.
+ * @param observer - callbacks reporting the calls' outcomes.
+ * @returns the observing transport.
+ */
+export function tapTransport(transport: MissionTransport, observer: TransportObserver): MissionTransport {
+  const notify = (run: () => void): void => {
+    try { run() } catch { /* an observer must never break the board */ }
+  }
+  const tapped: MissionTransport = {
+    getConfig: async () => {
+      notify(() => { observer.onLoadStart?.() })
+      try {
+        const config = await transport.getConfig()
+        notify(() => { observer.onConfig?.(config) })
+        return config
+      } catch (error: unknown) {
+        notify(() => { observer.onError?.(error) })
+        throw error
+      }
+    },
+    listMissions: async () => {
+      notify(() => { observer.onLoadStart?.() })
+      try {
+        const missions = await transport.listMissions()
+        notify(() => { observer.onList?.(missions) })
+        return missions
+      } catch (error: unknown) {
+        notify(() => { observer.onError?.(error) })
+        throw error
+      }
+    },
+    getMissionDetail: async (id, progress) => await transport.getMissionDetail(id, progress),
+    updateMission: async input => await transport.updateMission(input),
+  }
+  if (transport.subscribeEvents !== undefined) {
+    const subscribe = transport.subscribeEvents.bind(transport)
+    tapped.subscribeEvents = onChanged => subscribe(onChanged)
+  }
+  return tapped
 }

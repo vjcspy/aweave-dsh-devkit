@@ -1,5 +1,11 @@
 /**
- * Browser half: register the Mission Board tab kind, its keyed body, and its copy.
+ * Browser half: register the Mission Board tab kind, its keyed body, and its copy,
+ * plus the Missions page in the main column with its row in the left sidebar.
+ *
+ * The page is a keyed `main` entry with no Session binding; its row sits at
+ * `sidebar.panellist` order 0.75, under the Git row (0.5). `layout` is read
+ * through a scoped `ctx.inject`, so its absence only disables the tidy-up on
+ * teardown instead of unloading the whole plugin.
  *
  * The type is a PAGE, not a viewer: it claims no resource address, so it declares
  * no `patterns` and is reached through `openTab('aweave-mission-board')` — the guide
@@ -36,20 +42,30 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 // Type-only: declares the `useSessions` global seat and the `sessionId` session seat.
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
+// Type-only: the root `main` keyed slot and its panel id brand, and the
+// `sidebar.panellist` list the row registers into.
+import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
+import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 
 import {
   GUIDE_ENTRY_ID,
   GUIDE_ENTRY_ORDER,
   LOCALE_NAMESPACE,
+  PAGE_ID,
+  PAGE_ROW_ORDER,
   PLUGIN_ID,
   TAB_KIND,
   readInjectedConfig,
 } from '../config.ts'
 import { en } from './locale.ts'
 import { MissionBoardBody, type MissionBoardInjected } from './MissionBoardBody.tsx'
+import { MissionsPage, type MissionsPageInjected } from './MissionsPage.tsx'
+import { NavIcon } from './NavIcon.tsx'
+import { createPageMemory } from './page-memory.ts'
 import { installBoardStyles } from './styles.ts'
 
 export type { MissionBoardInjected, MissionBoardBodyProps } from './MissionBoardBody.tsx'
+export type { MissionsPageInjected, MissionsPageProps } from './MissionsPage.tsx'
 export type { MissionApiError, MissionApiFailureKind } from './lib/mission-transport.ts'
 
 /**
@@ -60,6 +76,12 @@ export type { MissionApiError, MissionApiFailureKind } from './lib/mission-trans
  * `sidebar.right.pane.tab`'s owner and the Session framework.
  */
 export const inject = ['slots', 'locale', 'sidebarRightTabs']
+
+/** The slice of the layout service this half calls. */
+interface LayoutLike {
+  selectPanel(panelId: MainPanelId | null): void
+  panelInfo: { getSnapshot(): { activePanelId?: string | null } }
+}
 
 /**
  * Register the tab kind, its dictionaries, its stylesheet, and its body.
@@ -94,4 +116,43 @@ export function apply(ctx: ClientContext): void {
     // per-occurrence value, so it ignores the ones the framework passes.
     inject: (): MissionBoardInjected => face,
   }, MissionBoardBody)), 'aweave-dsh-devkit: tab body')
+
+  // The reading position outlives the page's mount: the page unmounts whenever
+  // the Human returns to the Conversation.
+  const memory = createPageMemory()
+  const pageFace: MissionsPageInjected = { config, memory }
+
+  let layout: LayoutLike | undefined
+  const bind = ctx as unknown as { inject: (names: string[], callback: (inner: unknown) => void) => unknown }
+  bind.inject(['layout'], (inner) => {
+    const scoped = inner as ClientContext & { layout: LayoutLike }
+    layout = scoped.layout
+    scoped.effect(() => () => { layout = undefined }, 'aweave-dsh-devkit: layout service')
+  })
+
+  const panelId = PAGE_ID as MainPanelId
+
+  ctx.effect(() => ctx.slots.inject('main', () => {
+    const dispose = ctx.slots.register({
+      name: 'main',
+      key: panelId,
+      locale: LOCALE_NAMESPACE,
+      inject: (): MissionsPageInjected => pageFace,
+    }, MissionsPage)
+    return () => {
+      // Leave the page before its panel goes: a selection pointing at a key that
+      // no longer exists would strand the main column on nothing.
+      if (layout?.panelInfo.getSnapshot().activePanelId === PAGE_ID) layout.selectPanel(null)
+      dispose()
+    }
+  }), 'aweave-dsh-devkit: missions page')
+
+  // `order: 0.75` is directly under the Git row (0.5) and above the market row (1).
+  ctx.effect(() => ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
+    name: 'sidebar.panellist',
+    id: panelId,
+    order: PAGE_ROW_ORDER,
+    label: () => t('nav.label'),
+    locale: LOCALE_NAMESPACE,
+  }, NavIcon)), 'aweave-dsh-devkit: missions sidebar row')
 }

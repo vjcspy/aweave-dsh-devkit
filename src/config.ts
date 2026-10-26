@@ -157,6 +157,41 @@ export const EMBED_SCRIPT_PATH = `${FENCED_PREFIX}/mission-board/embed.js`
 /** Upstream path `EMBED_SCRIPT_PATH` forwards to. */
 export const EMBED_SCRIPT_UPSTREAM_PATH = '/mission-board/embed.js'
 
+/** Main-column page key and left-sidebar row id this plugin owns. */
+export const PAGE_ID = 'aweave-missions'
+
+/**
+ * Left-sidebar row order: directly under the `dsh-intellij-git` Git row (`0.5`),
+ * above the optional market row (`1`) and the `Schedules` row (`10`).
+ */
+export const PAGE_ROW_ORDER = 0.75
+
+/**
+ * The two read-only filesystem routes serving the Missions page's file tree and viewer.
+ *
+ * A SEPARATE table from {@link FENCED_PATHS}: that table is the backend forward
+ * allowlist (every row names an `upstreamPath`), whereas these two answer from the
+ * Host's own filesystem and forward nothing. Both halves import the table, so the
+ * browser addresses exactly the paths the Host registers; the paths are fixed
+ * protocol constants, not deployment data, so they are not part of
+ * {@link InjectedConfig}. `GET` only.
+ */
+export const MISSION_FILE_ROUTES = {
+  /** `?id=<mission folder>`: the folder's markdown tree. */
+  tree: `${FENCED_PREFIX}/missions/tree`,
+  /** `?path=<resources/**.md>`: one markdown file's content. */
+  file: `${FENCED_PREFIX}/missions/file`,
+} as const
+
+/** Largest markdown file `missions/file` serves, in bytes. */
+export const MAX_FILE_BYTES = 512 * 1024
+
+/** Most directory entries one `missions/tree` walk inspects before it stops with `truncated`. */
+export const MAX_TREE_ENTRIES = 2000
+
+/** Deepest directory level one `missions/tree` walk lists; the mission folder's own entries are level 1. */
+export const MAX_TREE_DEPTH = 3
+
 /** One operation as the browser half needs it: what to call, and where. */
 export interface InjectedOperation {
   readonly key: string
