@@ -11,11 +11,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import {
   Button,
+  IconCheckOutlineRegular,
   IconCloseOutlineRegular,
+  IconCopyOutlineRegular,
   IconRefreshOutlineRegular,
   PathLabel,
   Tag,
   Tooltip,
+  writeClipboard,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 
 import type { InjectedConfig } from '../config.ts'
@@ -31,6 +34,8 @@ import { Splitter } from './Splitter.tsx'
 const DEFAULT_TREE_PX = 240
 const MIN_TREE_PX = 160
 const MIN_VIEWER_PX = 220
+/** How long the copy control holds its result before returning to idle. */
+const COPY_FEEDBACK_MS = 1500
 
 /**
  * Clamp a number into a range.
@@ -84,8 +89,10 @@ export function MissionDetail(props: MissionDetailProps): ReactNode {
   const [overview, setOverview] = useState<MissionOverview | null>(null)
   const [metaLoading, setMetaLoading] = useState(true)
   const [viewerBusy, setViewerBusy] = useState(false)
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
   const [treePx, setTreePx] = useState<number>(() => readPref<number>('treePx', DEFAULT_TREE_PX, value => typeof value === 'number' && value >= MIN_TREE_PX))
   const bodyRef = useRef<HTMLDivElement | null>(null)
+  const copyTimerRef = useRef<number | null>(null)
 
   const plainTransport = useMemo(() => createMissionTransport(config), [config])
   // The copy seat is read at call time so a new `t` identity never refetches.
@@ -158,6 +165,23 @@ export function MissionDetail(props: MissionDetailProps): ReactNode {
 
   const refresh = (): void => { setReloadKey(value => value + 1) }
 
+  const clearCopyTimer = useCallback((): void => {
+    if (copyTimerRef.current === null) return
+    window.clearTimeout(copyTimerRef.current)
+    copyTimerRef.current = null
+  }, [])
+  useEffect(() => clearCopyTimer, [clearCopyTimer])
+  const copyPath = useCallback((): void => {
+    clearCopyTimer()
+    void writeClipboard(indexPath).then((ok) => {
+      setCopyState(ok ? 'copied' : 'failed')
+      copyTimerRef.current = window.setTimeout(() => {
+        copyTimerRef.current = null
+        setCopyState('idle')
+      }, COPY_FEEDBACK_MS)
+    })
+  }, [clearCopyTimer, indexPath])
+
   const onTreeDelta = (px: number): void => {
     const width = bodyRef.current?.clientWidth ?? 0
     setTreePx(current => clamp(current + px, MIN_TREE_PX, width - MIN_VIEWER_PX))
@@ -165,6 +189,10 @@ export function MissionDetail(props: MissionDetailProps): ReactNode {
   const persistTree = (): void => { writePref('treePx', treePx) }
 
   const name = overview?.name ?? baseNameOf(missionId)
+  const copyLabel = copyState === 'copied'
+    ? t('detail.path.copied')
+    : copyState === 'failed' ? t('detail.path.copyFailed') : t('detail.path.copy')
+  const copyAnnouncement = copyState === 'idle' ? '' : copyLabel
   return (
     <div className="awe-mp-detailRoot" data-aweave-devkit="detail">
       <header className="awe-mp-detailHead">
@@ -180,7 +208,19 @@ export function MissionDetail(props: MissionDetailProps): ReactNode {
         <Tooltip label={t('detail.close.tip')} delayMs={500} portal side="bottom">
           <Button variant="ghost" size="sm" icon={<IconCloseOutlineRegular size={14} />} aria-label={t('detail.close')} onClick={onClose} />
         </Tooltip>
-        <PathLabel path={missionId} className="awe-mp-detailPath" />
+        <div className="awe-mp-detailPathRow">
+          <PathLabel path={indexPath} className="awe-mp-detailPath" />
+          <Tooltip label={copyLabel} delayMs={500} portal side="bottom">
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={copyState === 'copied' ? <IconCheckOutlineRegular size={14} /> : <IconCopyOutlineRegular size={14} />}
+              aria-label={copyLabel}
+              onClick={copyPath}
+            />
+          </Tooltip>
+          <span className="awe-mp-srOnly" aria-live="polite">{copyAnnouncement}</span>
+        </div>
       </header>
       <div
         className="awe-mp-detailBody"

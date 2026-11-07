@@ -266,7 +266,9 @@ const PAGE_STYLESHEET = `
 }
 [data-aweave-devkit='missions-page'] .awe-mp-detailTitle { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
 [data-aweave-devkit='missions-page'] .awe-mp-detailName { min-width: 0; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-[data-aweave-devkit='missions-page'] .awe-mp-detailPath { flex-basis: 100%; min-width: 0; color: var(--dsw-alias-label-tertiary); }
+[data-aweave-devkit='missions-page'] .awe-mp-detailPathRow { flex-basis: 100%; min-width: 0; display: flex; align-items: center; gap: 4px; }
+[data-aweave-devkit='missions-page'] .awe-mp-detailPath { flex: 1 1 auto; min-width: 0; color: var(--dsw-alias-label-tertiary); }
+[data-aweave-devkit='missions-page'] .awe-mp-srOnly { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 [data-aweave-devkit='missions-page'] .awe-mp-detailBody {
   flex: 1;
   min-height: 0;

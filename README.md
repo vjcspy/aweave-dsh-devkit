@@ -23,7 +23,7 @@ Mission Board tab (right sidebar)  --fetch, same origin, cookie-->  /api/aweave-
 | Half | State |
 | --- | --- |
 | **Host** | Complete: the fenced JSON route table (four mission operations), the `embed.js` script-route proxy with its own error mapping, the upstream forwarding policy, and the Aweave-root resolution. |
-| **Missions page** | A left-sidebar `Missions` row (`sidebar.panellist` order 0.75, under Git) opens the keyed `main` page `aweave-missions`: the same `embed.js` board plus an in-page mission detail (file tree and markdown viewer). It reads no Session, so it works with none open. |
+| **Missions page** | A left-sidebar `Missions` row (`sidebar.panellist` order 0.75, under Git) opens the keyed `main` page `aweave-missions`: the same `embed.js` board plus an in-page mission detail (file tree and markdown viewer) whose header states the mission’s `INDEX.md` path behind a one-click copy. It reads no Session, so it works with none open. |
 | **Browser** | Complete: the right-sidebar page type, its guide entry, its dictionary and shell stylesheet, and `MissionBoardBody` — the composition root that loads `embed.js` once per page and mounts it into a plain container, handing it a transport built over the fenced JSON routes and a theme mapped onto this platform's `--dsw-alias-*` tokens. |
 
 There is **no live push (SSE) in this integration**: the shared `/api` channel's forwarder buffers every upstream

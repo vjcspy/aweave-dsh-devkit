@@ -1,6 +1,6 @@
 {
   "name": "aweave-dsh-devkit",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "DSH Web plugin that opens the Aweave Mission Board in the right sidebar and as a Missions page with a mission file tree and markdown viewer, loading @hod/aweave-mission-web's embed.js and reaching its backend through the host's admission-fenced /api channel.",
   "license": "MIT",

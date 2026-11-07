@@ -74,6 +74,9 @@ export const en = {
   'detail.close': 'Close',
   'detail.close.tip': 'Close the mission detail',
   'detail.splitter': 'Resize the file tree',
+  'detail.path.copy': 'Copy path',
+  'detail.path.copied': 'Path copied',
+  'detail.path.copyFailed': 'Could not copy the path to the clipboard',
 
   'tree.label': 'Mission files',
   'tree.mission': 'Mission folder',
